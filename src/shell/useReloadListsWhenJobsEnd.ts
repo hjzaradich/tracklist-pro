@@ -12,7 +12,7 @@ import { listKeys, reloadLists } from "../app/lists";
 export function useReloadListsWhenJobsEnd() {
   const queryClient = useQueryClient();
   useWhenJobsEnd(() => {
-    void reloadLists(queryClient, "library", "missing", "crates", "playlists", "folders", "tagSources", "review", "inbox", "estimates");
+    void reloadLists(queryClient, "library", "missing", "crates", "playlists", "folders", "tagSources", "review", "inbox", "estimates", "audioModel");
     // The Overview's numbers take long to work out on a big Library: a job
     // ending while they're on their way doesn't start them over (the numbers
     // are asked again every few seconds while jobs are counting).

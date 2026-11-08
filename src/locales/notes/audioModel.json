@@ -1,0 +1,338 @@
+{
+  "title": {
+    "purpose": "Heading of the panel that holds the audio model's guesses and its Sounds like list.",
+    "where": "Track details, after What's next, when the audio model is on."
+  },
+  "opinion": {
+    "purpose": "Says the panel shows the model's opinion only and changes nothing on the track.",
+    "where": "Track details, under the Audio model heading."
+  },
+  "genre": {
+    "purpose": "Label for the model's genre guesses.",
+    "where": "Audio model section."
+  },
+  "mood": {
+    "purpose": "Label for the model's mood guess.",
+    "where": "Audio model section."
+  },
+  "guess": {
+    "purpose": "One guess: a genre or mood name and the model's confidence in percent.",
+    "where": "Audio model section, genre and mood lines."
+  },
+  "guessSeparator": {
+    "purpose": "Goes between several genre guesses.",
+    "where": "Audio model section, genre line."
+  },
+  "noGenre": {
+    "purpose": "Says the model has no genre guess for this track, so it isn't read as a fault.",
+    "where": "Audio model section, genre line."
+  },
+  "noMood": {
+    "purpose": "Says the model has no mood guess for this track, so it isn't read as a fault.",
+    "where": "Audio model section, mood line."
+  },
+  "similar.title": {
+    "purpose": "Heading of the list of Library tracks the audio model hears as close to the selected one.",
+    "where": "Audio model section."
+  },
+  "similar.percent": {
+    "purpose": "How close a track sounds to the selected one, in percent.",
+    "where": "Audio model section, beside each Sounds like track."
+  },
+  "similar.empty": {
+    "purpose": "Says no other Library track has been listened to enough to compare, so it isn't read as a fault.",
+    "where": "Audio model section, under Sounds like."
+  },
+  "loading": {
+    "purpose": "Shown while the panel's guesses or list are being read.",
+    "where": "Audio model section."
+  },
+  "state.notListened_one": {
+    "purpose": "Says the selected track hasn't been listened to yet and how far the listening has got (one track in all).",
+    "where": "Audio model section."
+  },
+  "state.notListened_other": {
+    "purpose": "Says the selected track hasn't been listened to yet and how far the listening has got.",
+    "where": "Audio model section."
+  },
+  "state.couldntRead": {
+    "purpose": "Says the model couldn't read this track's audio.",
+    "where": "Audio model section."
+  },
+  "state.notInLibrary": {
+    "purpose": "Says only Library tracks are listened to, for a track that isn't in the Library.",
+    "where": "Audio model section."
+  },
+  "switch.label": {
+    "purpose": "Name of the switch for the audio model.",
+    "where": "Settings, Optional features."
+  },
+  "switch.help": {
+    "purpose": "Says what the audio model gives, that it runs on this computer and sends nothing, and that listening takes a while in the background.",
+    "where": "Settings, Optional features, under the Audio model switch."
+  },
+  "switch.error": {
+    "purpose": "Says the switch couldn't be saved.",
+    "where": "Settings, Optional features, under the Audio model switch."
+  },
+  "switch.noTracks": {
+    "purpose": "Says the Library has no tracks for the model to listen to yet.",
+    "where": "Settings, Audio model status line."
+  },
+  "switch.progress_one": {
+    "purpose": "How many Library tracks have been listened to (one track in all).",
+    "where": "Settings, Audio model status line."
+  },
+  "switch.progress_other": {
+    "purpose": "How many Library tracks have been listened to.",
+    "where": "Settings, Audio model status line."
+  },
+  "switch.failed_one": {
+    "purpose": "Says how many tracks the model couldn't read (one).",
+    "where": "Settings, Audio model status line."
+  },
+  "switch.failed_other": {
+    "purpose": "Says how many tracks the model couldn't read.",
+    "where": "Settings, Audio model status line."
+  },
+  "switch.running": {
+    "purpose": "Says the listening is going on in the background.",
+    "where": "Settings, Audio model status line."
+  },
+  "switch.paused": {
+    "purpose": "Says the listening isn't running now although tracks are left (paused, or a drive is unplugged).",
+    "where": "Settings, Audio model status line."
+  },
+  "switch.finished": {
+    "purpose": "Says every Library track has been listened to or couldn't be read.",
+    "where": "Settings, Audio model status line."
+  },
+  "label.popMusic": {
+    "purpose": "Name shown for the model's label \"Pop music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.hipHopMusic": {
+    "purpose": "Name shown for the model's label \"Hip hop music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.beatboxing": {
+    "purpose": "Name shown for the model's label \"Beatboxing\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.rockMusic": {
+    "purpose": "Name shown for the model's label \"Rock music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.heavyMetal": {
+    "purpose": "Name shown for the model's label \"Heavy metal\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.punkRock": {
+    "purpose": "Name shown for the model's label \"Punk rock\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.grunge": {
+    "purpose": "Name shown for the model's label \"Grunge\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.progressiveRock": {
+    "purpose": "Name shown for the model's label \"Progressive rock\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.rockAndRoll": {
+    "purpose": "Name shown for the model's label \"Rock and roll\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.psychedelicRock": {
+    "purpose": "Name shown for the model's label \"Psychedelic rock\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.rhythmAndBlues": {
+    "purpose": "Name shown for the model's label \"Rhythm and blues\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.soulMusic": {
+    "purpose": "Name shown for the model's label \"Soul music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.reggae": {
+    "purpose": "Name shown for the model's label \"Reggae\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.country": {
+    "purpose": "Name shown for the model's label \"Country\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.swingMusic": {
+    "purpose": "Name shown for the model's label \"Swing music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.bluegrass": {
+    "purpose": "Name shown for the model's label \"Bluegrass\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.funk": {
+    "purpose": "Name shown for the model's label \"Funk\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.folkMusic": {
+    "purpose": "Name shown for the model's label \"Folk music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.middleEasternMusic": {
+    "purpose": "Name shown for the model's label \"Middle Eastern music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.jazz": {
+    "purpose": "Name shown for the model's label \"Jazz\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.disco": {
+    "purpose": "Name shown for the model's label \"Disco\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.classicalMusic": {
+    "purpose": "Name shown for the model's label \"Classical music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.opera": {
+    "purpose": "Name shown for the model's label \"Opera\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.electronicMusic": {
+    "purpose": "Name shown for the model's label \"Electronic music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.houseMusic": {
+    "purpose": "Name shown for the model's label \"House music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.techno": {
+    "purpose": "Name shown for the model's label \"Techno\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.dubstep": {
+    "purpose": "Name shown for the model's label \"Dubstep\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.drumAndBass": {
+    "purpose": "Name shown for the model's label \"Drum and bass\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.electronica": {
+    "purpose": "Name shown for the model's label \"Electronica\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.electronicDanceMusic": {
+    "purpose": "Name shown for the model's label \"Electronic dance music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.ambientMusic": {
+    "purpose": "Name shown for the model's label \"Ambient music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.tranceMusic": {
+    "purpose": "Name shown for the model's label \"Trance music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.musicOfLatinAmerica": {
+    "purpose": "Name shown for the model's label \"Music of Latin America\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.salsaMusic": {
+    "purpose": "Name shown for the model's label \"Salsa music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.flamenco": {
+    "purpose": "Name shown for the model's label \"Flamenco\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.blues": {
+    "purpose": "Name shown for the model's label \"Blues\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.musicForChildren": {
+    "purpose": "Name shown for the model's label \"Music for children\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.newAgeMusic": {
+    "purpose": "Name shown for the model's label \"New-age music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.vocalMusic": {
+    "purpose": "Name shown for the model's label \"Vocal music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.aCapella": {
+    "purpose": "Name shown for the model's label \"A capella\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.musicOfAfrica": {
+    "purpose": "Name shown for the model's label \"Music of Africa\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.afrobeat": {
+    "purpose": "Name shown for the model's label \"Afrobeat\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.christianMusic": {
+    "purpose": "Name shown for the model's label \"Christian music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.gospelMusic": {
+    "purpose": "Name shown for the model's label \"Gospel music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.musicOfAsia": {
+    "purpose": "Name shown for the model's label \"Music of Asia\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.carnaticMusic": {
+    "purpose": "Name shown for the model's label \"Carnatic music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.musicOfBollywood": {
+    "purpose": "Name shown for the model's label \"Music of Bollywood\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.ska": {
+    "purpose": "Name shown for the model's label \"Ska\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.traditionalMusic": {
+    "purpose": "Name shown for the model's label \"Traditional music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.independentMusic": {
+    "purpose": "Name shown for the model's label \"Independent music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.happyMusic": {
+    "purpose": "Name shown for the model's label \"Happy music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.funnyMusic": {
+    "purpose": "Name shown for the model's label \"Funny music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.sadMusic": {
+    "purpose": "Name shown for the model's label \"Sad music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.tenderMusic": {
+    "purpose": "Name shown for the model's label \"Tender music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.excitingMusic": {
+    "purpose": "Name shown for the model's label \"Exciting music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.angryMusic": {
+    "purpose": "Name shown for the model's label \"Angry music\".",
+    "where": "Audio model section, genre or mood guess."
+  },
+  "label.scaryMusic": {
+    "purpose": "Name shown for the model's label \"Scary music\".",
+    "where": "Audio model section, genre or mood guess."
+  }
+}

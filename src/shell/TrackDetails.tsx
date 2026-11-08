@@ -7,6 +7,7 @@ import { useWithdrawRelink } from "../review/useReviewActions";
 import { EnergyDetails } from "./EnergyDetails";
 import { TrackCrates } from "./TrackCrates";
 import { TrackTags } from "../vocab/TrackTags";
+import { AudioModelPanel } from "../audioModel/AudioModelPanel";
 import { WhatsNext } from "../whatsNext/WhatsNext";
 import { useTrackTagSources } from "./useTrackTagSources";
 import styles from "./TrackDetails.module.css";
@@ -141,6 +142,7 @@ export function TrackDetails({ row }: { row: TableRow }) {
       <TrackCrates row={row} />
       <TrackTags row={row} />
       <WhatsNext row={row} />
+      <AudioModelPanel row={row} />
       {entry !== null && (
         <div className={styles.confirmed}>
           <p className={styles.quiet}>{t("details.withdraw.confirmed")}</p>

@@ -13,6 +13,7 @@ import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
 import { MUSIC_FOLDERS_QUERY_KEY } from "../scan/useMusicFolders";
 import { TRACK_TAG_SOURCES_QUERY_KEY } from "../shell/useTrackTagSources";
+import { AUDIO_MODEL_QUERY_KEY } from "../audioModel/useAudioModel";
 import { ENERGY_SUGGESTION_QUERY_KEY } from "../trackTable/useEnergySuggestion";
 import { WISHLIST_QUERY_KEY } from "../wishlist/useWishlist";
 
@@ -57,6 +58,8 @@ const GROUPS = {
   overview: () => [OVERVIEW_QUERY_KEY],
   /** The app's energy suggestions: the Analyze job measures more tracks, and a new batch moves the percentiles. */
   estimates: () => [ENERGY_SUGGESTION_QUERY_KEY],
+  /** The audio model's status, guesses and Sounds like lists: its listening job adds results. */
+  audioModel: () => [AUDIO_MODEL_QUERY_KEY],
   /** The genre tree, its aliases, and Review's unmapped-genre group. */
   genre: () => [GENRE_QUERY_KEY],
 } satisfies Record<string, () => Keys>;
