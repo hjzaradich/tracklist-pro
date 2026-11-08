@@ -100,6 +100,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0052_playlist"),
     migration!("0053_file_estimate"),
     migration!("0054_file_estimate_key"),
+    migration!("0055_embedding"),
 ];
 
 /// The table that records which migrations a database has had.

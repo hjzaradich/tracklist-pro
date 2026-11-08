@@ -49,11 +49,15 @@ const KEEP_BUNDLES: usize = 1;
 
 /// What makes a database true only on this PC. Run on the bundle's copy,
 /// never on the Library: the job queue, consent to online services (given
-/// per install), settings that name this PC's files or state, and where
-/// each drive was last mounted. Everything else travels.
+/// per install), settings that name this PC's files or state, where each
+/// drive was last mounted, and the files the audio model could not hear (the
+/// other PC may decode them). Everything else travels, including the
+/// audio model's results (`embedding`): they are computed from the user's
+/// own audio and take hours to make again.
 const MACHINE_ONLY: &str = "
     DELETE FROM job;
     DELETE FROM service_optin;
+    DELETE FROM embedding_failure;
     DELETE FROM setting
      WHERE key IN ('rekordbox_xml_path', 'rekordbox_xml_watch',
                    'rekordbox_xml_last_failure', 'read_online_only_files',

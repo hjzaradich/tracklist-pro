@@ -325,6 +325,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0053_file_estimate.sql", &["file_estimate"]),
     // The key in the analyze job's ledger: three columns, no new tables (3C-E2).
     ("0054_file_estimate_key.sql", &[]),
+    // What the audio model heard per file, and the files it could not hear (3.8, 5A-A2b).
+    ("0055_embedding.sql", &["embedding", "embedding_failure"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
@@ -375,8 +377,8 @@ fn the_phase_1_schema_has_only_the_phase_1_tables() {
     // ROADMAP §2 "When tables arrive": Phase 2 and 3 tables come with the
     // phase that first needs them.
     let (_dir, conn) = db();
-    // Playlists arrived with 3.5 (migration 0052).
-    let later = ["play_source", "embedding"];
+    // Playlists arrived with 3.5 (migration 0052), embeddings with 3.8 (0055).
+    let later = ["play_source"];
     let present = tables(&conn);
     for table in later {
         assert!(!present.iter().any(|t| t == table), "{table} arrived early");

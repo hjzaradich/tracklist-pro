@@ -73,6 +73,8 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::settings::set_key_notation,
             crate::settings::feature_enabled,
             crate::settings::set_feature_enabled,
+            crate::audio_model::control::audio_model_status,
+            crate::audio_model::control::set_audio_model_enabled,
             crate::update::update_status,
             crate::update::set_update_checks,
             crate::update::check_for_updates,

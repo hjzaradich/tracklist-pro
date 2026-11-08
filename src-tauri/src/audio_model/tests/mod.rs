@@ -5,6 +5,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+#[cfg(windows)]
+mod job;
+// The quality tests' temporary music folder, volume and walk-and-hash.
+#[cfg(windows)]
+#[allow(dead_code, clippy::duplicate_mod)]
+#[path = "../../quality/tests/support.rs"]
+pub mod support;
+
 use super::mel::{Frontend, N_FRAMES, N_MELS, WINDOW_SAMPLES};
 use super::window::{stretch_of, window_starts};
 use super::*;
@@ -120,6 +128,11 @@ fn top5(scores: &[f32]) -> Vec<usize> {
 
 /// A mono 32-bit float WAV, written by hand so the samples survive exactly.
 fn write_wav(path: &Path, samples: &[f32], rate: u32) {
+    std::fs::write(path, wav_bytes(samples, rate)).expect("temp wav");
+}
+
+/// The bytes of that WAV.
+fn wav_bytes(samples: &[f32], rate: u32) -> Vec<u8> {
     let data = (samples.len() * 4) as u32;
     let mut b = Vec::with_capacity(samples.len() * 4 + 56);
     b.extend_from_slice(b"RIFF");
@@ -140,7 +153,7 @@ fn write_wav(path: &Path, samples: &[f32], rate: u32) {
     for s in samples {
         b.extend_from_slice(&s.to_le_bytes());
     }
-    std::fs::write(path, b).expect("temp wav");
+    b
 }
 
 #[test]
@@ -422,4 +435,44 @@ fn listening_is_cancellable_between_windows_during_inference() {
         2,
         "asked before each window, and stopped at the second"
     );
+
+fn the_kept_labels_are_the_models_genre_and_mood_names() {
+    let labels: Vec<String> = serde_json::from_slice(
+        &std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/models/ced-tiny/labels.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(labels.len(), LABEL_COUNT);
+    for (index, name) in subset::SUBSET {
+        assert_eq!(labels[index], name, "label {index}");
+    }
+    // Genres from "Pop music" to "Independent music", then the moods.
+    assert_eq!(subset::SUBSET[0].1, "Pop music");
+    assert_eq!(subset::SUBSET[49].1, "Independent music");
+    assert_eq!(subset::SUBSET[50].1, "Happy music");
+    assert_eq!(subset::SUBSET[56].1, "Scary music");
+    let mut indices: Vec<usize> = subset::SUBSET.iter().map(|s| s.0).collect();
+    indices.dedup();
+    assert_eq!(indices.len(), subset::SUBSET_LEN, "no label twice");
+}
+
+#[test]
+fn the_model_id_names_the_model_and_the_label_list() {
+    assert_eq!(subset::model_id(), "ced-tiny@a455633f/labels1");
+}
+
+#[test]
+fn scores_and_fingerprints_are_stored_as_little_endian_f32() {
+    let values = [1.0f32, -2.5, 0.125];
+    let blob = subset::to_blob(&values);
+    assert_eq!(&blob[..4], &1.0f32.to_le_bytes());
+    assert_eq!(subset::from_blob(&blob).unwrap(), values);
+    assert!(subset::from_blob(&blob[..5]).is_none());
+    let scores: Vec<f32> = (0..LABEL_COUNT).map(|i| i as f32).collect();
+    let kept = subset::pick(&scores);
+    assert_eq!(kept.len(), subset::SUBSET_LEN);
+    assert_eq!(kept[0], 216.0);
+    assert_eq!(kept[56], 282.0);
 }

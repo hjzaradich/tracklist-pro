@@ -23,6 +23,11 @@ const SEED: &str = r#"
         VALUES (1, 'serial=FS-1234ABCD', 'Music', 'external', 'E:/', '{0d1e}');
     INSERT INTO music_folder (id, volume_id, rel_path, rel_path_key, watch) VALUES (1, 1, 'DJ', 'dj', 1);
     INSERT INTO file (id, music_folder_id, rel_path, rel_path_key) VALUES (7, 1, 'House/a.mp3', 'house/a.mp3');
+    INSERT INTO file (id, music_folder_id, rel_path, rel_path_key) VALUES (8, 1, 'House/b.mp3', 'house/b.mp3');
+    INSERT INTO embedding (file_id, audio_hash, model_id, fingerprint, label_scores)
+        VALUES (7, zeroblob(34), 'ced-tiny@a455633f/labels1', zeroblob(768), zeroblob(228));
+    INSERT INTO embedding_failure (file_id, audio_hash, model_id, reason)
+        VALUES (8, zeroblob(34), 'ced-tiny@a455633f/labels1', 'damaged');
     INSERT INTO recording (id) VALUES (3);
     INSERT INTO library_track (id, recording_id, linked_file_id) VALUES (5, 3, 7);
     INSERT INTO crate (id, kind, name) VALUES (2, 'static', 'Warmup');
@@ -192,7 +197,13 @@ fn a_round_trip_keeps_every_user_table_and_the_id_counters() {
         summary.app_version.as_deref(),
         Some(env!("CARGO_PKG_VERSION"))
     );
-    let machine = ["job", "service_optin", "setting", "volume"];
+    let machine = [
+        "job",
+        "service_optin",
+        "setting",
+        "volume",
+        "embedding_failure",
+    ];
     for (table, rows) in &before {
         if !machine.contains(&table.as_str()) {
             assert_eq!(&after[table], rows, "{table} changed on the way");
@@ -207,6 +218,24 @@ fn a_round_trip_keeps_every_user_table_and_the_id_counters() {
     assert!(after["volume"][0].contains("serial=FS-1234ABCD"));
     assert!(after["volume"][0].contains("Null"));
     assert!(after["job"].is_empty() && after["service_optin"].is_empty());
+}
+
+#[test]
+fn a_bundle_carries_the_audio_models_fingerprints_and_not_its_failures() {
+    let root = TempDir::new().unwrap();
+    let (a, writer) = library(root.path(), "a", SEED);
+    let zip = make_bundle(&a, &writer);
+    writer.close();
+    let before = dump(&live(&a));
+    let b = closed_library(root.path(), "b", "");
+    import(&b, &zip, 2_000);
+    let after = dump(&live(&b));
+    // The results are the user's own audio's, hours of work: they travel.
+    assert_eq!(after["embedding"].len(), 1);
+    assert_eq!(after["embedding"], before["embedding"]);
+    // The files this PC couldn't hear are tried again on the other.
+    assert_eq!(before["embedding_failure"].len(), 1);
+    assert!(after["embedding_failure"].is_empty());
 }
 
 #[test]
