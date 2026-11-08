@@ -91,7 +91,7 @@ In [TASKS-archive.md](TASKS-archive.md).
 - **Follow-ups:** ✅ F (PR 215) the bundle swap's double failure leaving a stray -wal; the Save dialog's gig-stick check refusing an ordinary folder that happens to hold a "Pioneer" folder; COM0 and superscript device names. Left: a stale set-aside folder can skip the fold before a swap, and a second failure overwrites the earlier `.stray` copy (review notes).
 - Installer 0.1.9 built (PR 213).
 
-### Run 5A ✅ (owner 2026-11-07: "go for it", budget about 20 weekly points, started at 39%, ended at about 44%; PRs 217-221)
+### Run 5A ✅ (owner 2026-11-07: "go for it", budget about 20 weekly points, started at 39%, ended at about 43%; PRs 217-221)
 - **3.8 part 1, the audio model (CED-tiny):**
   - ✅ A1 (PR 217) the model file: an export script that rebuilds it from the original (pinned versions), the file in the repo under `src-tauri/resources/models/ced-tiny/` with its Apache-2.0 licence and a notice (source, revision, sha256, our change: an embedding output), golden reference outputs from synthetic audio for the parity tests, the label names, bundled in the installer, the credit in About and on the third-party licence page. Foreman's call: the file lives in git (22 MB, plain, not LFS), because a release asset would be a public release and LFS bandwidth is limited.
   - ✅ A2a (PR 219) the listening step: the app's own 16 kHz / 64-mel front end, the model loaded with `tract` after a sha256 check, three 10-second windows per track, a fingerprint and label scores; parity tests against the golden outputs. No database, no job.
