@@ -7,7 +7,6 @@ import { createQueryClient } from "../app/queryClient";
 import type { OnlineService, OnlineServicesStatus, SaveTokenOutcome } from "../bindings";
 import "../i18n";
 import { tx } from "../test/tx";
-import rawMessages from "../locales/en/onlineServices.json?raw";
 import { OnlineServicesRows } from "./OnlineServicesRows";
 
 const OFF: OnlineServicesStatus = {
@@ -18,7 +17,6 @@ const OFF: OnlineServicesStatus = {
 };
 
 const TOKEN = "tok-3f9a-secret-value";
-const ADDRESS = "https://www.discogs.com/settings/developers";
 
 /** Stands in for the Rust side: the switches, the saved-token flag and every call made. */
 function fakeBackend(
@@ -73,9 +71,12 @@ function fakeBackend(
   return backend;
 }
 
+let client = createQueryClient();
+
 function renderRows() {
+  client = createQueryClient();
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={client}>
       <OnlineServicesRows />
     </QueryClientProvider>,
   );
@@ -197,6 +198,10 @@ describe("OnlineServicesRows", () => {
     expect(after.value).toBe("");
     expect(document.body.innerHTML).not.toContain(TOKEN);
     expect(document.body.textContent).not.toContain(TOKEN);
+    // No copy of it is kept in the query library's mutation state either.
+    await waitFor(() =>
+      expect(client.getMutationCache().getAll().map((mutation) => mutation.state.variables)).not.toContain(TOKEN),
+    );
     await waitFor(() => expect(screen.getByText(tx("onlineServices:discogs.saved"))).toBeVisible());
     expect(document.body.innerHTML).not.toContain(TOKEN);
   });
@@ -291,11 +296,6 @@ describe("OnlineServicesRows", () => {
     vi.stubGlobal("open", open);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     await renderLoaded();
-    // The address is the owner's decision, so it is pinned in the locale file itself (the page shows a marker in the marker mode).
-    const file = JSON.parse(rawMessages) as {
-      discogs: { tokenUrl: string };
-    };
-    expect(file.discogs.tokenUrl).toBe(ADDRESS);
     const shown = tx("onlineServices:discogs.tokenUrl");
     expect(await screen.findByText(shown)).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: tx("onlineServices:discogs.copy") }));

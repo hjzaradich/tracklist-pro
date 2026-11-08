@@ -127,6 +127,8 @@ function DiscogsToken({ tokenSaved, storeAvailable }: { tokenSaved: boolean; sto
     save.mutate(typed, {
       onSuccess: (outcome) => setNotice(outcome),
       onError: () => setNotice("failed"),
+      // Forget the typed token (the mutation's variables) once the save is over.
+      onSettled: () => save.reset(),
     });
   };
   const forget = () => {

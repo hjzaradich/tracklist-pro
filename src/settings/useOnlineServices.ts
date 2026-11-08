@@ -31,6 +31,8 @@ export function useSaveDiscogsToken() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (token: string) => unwrap(commands.saveDiscogsToken(token)),
+    // The typed token is the mutation's `variables`: drop the mutation as soon as nobody watches it, so no copy of the token outlives the save.
+    gcTime: 0,
     onSettled: () => queryClient.invalidateQueries({ queryKey: ONLINE_SERVICES_QUERY_KEY }),
   });
 }
