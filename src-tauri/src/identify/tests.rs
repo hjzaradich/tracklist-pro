@@ -185,7 +185,8 @@ fn a_file_name_alone_suggests_title_artist_mix_and_remixer_naming_the_file() {
         file: t.named(t.file, "Halden Rook - Velo (Kit Remix).mp3"),
     };
     for (field, value) in [
-        (IdentifyField::Name, "Velo"),
+        // The title as the name spells it, version included.
+        (IdentifyField::Name, "Velo (Kit Remix)"),
         (IdentifyField::Artist, "Halden Rook"),
         (IdentifyField::Mix, "Kit Remix"),
         (IdentifyField::Remixer, "Kit"),
@@ -258,8 +259,8 @@ fn a_sibling_file_suggests_the_value_it_holds_when_it_differs_from_the_linked_fi
 }
 
 #[test]
-fn the_same_value_from_two_sources_is_one_suggestion_naming_both_in_its_best_spelling() {
-    let t = track("HALDEN ROOK - Velo.mp3");
+fn the_same_value_from_two_sources_is_one_suggestion_naming_both() {
+    let t = track("Halden Rook - Velo.mp3");
     t.lib.tag(t.file, &[("Artist", "Halden  Rook ")]);
     t.rekordbox_has_it();
 
@@ -270,13 +271,59 @@ fn the_same_value_from_two_sources_is_one_suggestion_naming_both_in_its_best_spe
             "Halden Rook".to_owned(),
             vec![
                 IdentifySource::Tags {
-                    file: t.named(t.file, "HALDEN ROOK - Velo.mp3")
+                    file: t.named(t.file, "Halden Rook - Velo.mp3")
                 },
                 IdentifySource::FileName {
-                    file: t.named(t.file, "HALDEN ROOK - Velo.mp3")
+                    file: t.named(t.file, "Halden Rook - Velo.mp3")
                 },
             ]
         )]
+    );
+}
+
+#[test]
+fn values_that_differ_only_in_letter_case_are_two_suggestions() {
+    let t = track("HALDEN ROOK - Velo.mp3");
+    t.lib.tag(t.file, &[("Artist", "Halden Rook")]);
+    t.rekordbox_has_it();
+    // One source each: the tag's comes first.
+    assert_eq!(
+        t.values(IdentifyField::Artist),
+        ["Halden Rook", "HALDEN ROOK"]
+    );
+}
+
+#[test]
+fn the_file_name_and_the_title_tag_agree_on_name_and_mix() {
+    let t = track("Kit - Velo (Extended Mix).mp3");
+    t.lib.tag(t.file, &[("Name", "Velo (Extended Mix)")]);
+    let other = t.sibling("Kit - Velo (Radio Edit).flac");
+    t.rekordbox_has_it();
+    let tags = IdentifySource::Tags {
+        file: t.named(t.file, "Kit - Velo (Extended Mix).mp3"),
+    };
+    let name = IdentifySource::FileName {
+        file: t.named(t.file, "Kit - Velo (Extended Mix).mp3"),
+    };
+    let sibling_name = IdentifySource::FileName {
+        file: t.named(other, "Kit - Velo (Radio Edit).flac"),
+    };
+    assert_eq!(
+        t.field(IdentifyField::Name).1,
+        vec![
+            (
+                "Velo (Extended Mix)".to_owned(),
+                vec![tags.clone(), name.clone()]
+            ),
+            ("Velo (Radio Edit)".to_owned(), vec![sibling_name.clone()]),
+        ]
+    );
+    assert_eq!(
+        t.field(IdentifyField::Mix).1,
+        vec![
+            ("Extended Mix".to_owned(), vec![tags, name]),
+            ("Radio Edit".to_owned(), vec![sibling_name]),
+        ]
     );
 }
 
@@ -305,27 +352,31 @@ fn a_value_with_more_sources_ranks_first_then_the_stronger_source() {
 }
 
 #[test]
-fn a_value_equal_to_the_current_one_is_not_suggested_whatever_its_case_or_spacing() {
-    let t = track("Kit - VELO.mp3");
-    t.lib.tag(t.file, &[("Name", "Velo")]);
+fn a_value_equal_to_the_current_one_is_not_suggested_but_a_change_of_letter_case_is() {
+    let t = track("Kit - Velo .mp3");
+    t.lib.tag(t.file, &[("Name", " Velo")]);
     let (current, names) = t.field(IdentifyField::Name);
-    assert_eq!(current.as_deref(), Some("Velo"));
-    assert!(names.is_empty(), "{names:?}");
-    assert_eq!(t.values(IdentifyField::Artist), ["Kit"]);
+    assert_eq!(current.as_deref(), Some(" Velo"));
+    assert!(names.is_empty(), "equal but for blanks: {names:?}");
+
+    let u = track("Kit - VELO.mp3");
+    u.lib.tag(u.file, &[("Name", "Velo")]);
+    assert_eq!(u.values(IdentifyField::Name), ["VELO"]);
 
     // The app's own value is the current one when it has one.
-    t.lib
-        .writer
-        .call({
-            let library = t.library;
-            move |c| Ok(app_values::set(c, &Mount, library, "Artist", "kit"))
-        })
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        t.field(IdentifyField::Artist),
-        (Some("kit".to_owned()), vec![])
-    );
+    for (own, offered) in [("Kit", vec![]), ("kit", vec!["Kit"])] {
+        u.lib
+            .writer
+            .call({
+                let library = u.library;
+                move |c| Ok(app_values::set(c, &Mount, library, "Artist", own))
+            })
+            .unwrap()
+            .unwrap();
+        let (current, artists) = u.field(IdentifyField::Artist);
+        assert_eq!(current.as_deref(), Some(own));
+        assert_eq!(u.values(IdentifyField::Artist), offered, "{artists:?}");
+    }
 }
 
 #[test]
@@ -397,7 +448,7 @@ fn online_candidates_merge_and_rank_with_the_offline_ones() {
     let all = t.suggestions_with(vec![
         Candidate {
             field: IdentifyField::Artist,
-            value: "kit".to_owned(),
+            value: " Kit".to_owned(),
             source: online.clone(),
         },
         Candidate {
@@ -448,6 +499,49 @@ fn use_of_two_fields_is_one_operation_and_one_undo_puts_both_back() {
 }
 
 #[test]
+fn use_of_a_sent_field_and_the_catalogue_number_is_one_operation_and_one_undo_puts_both_back() {
+    let t = track("Kit - Velo.mp3");
+    t.use_these(&[("CatalogueNumber", "ROOK001")]).unwrap();
+    let before = t.operations().len();
+
+    t.use_these(&[("Name", "Velo"), ("CatalogueNumber", "ROOK002")])
+        .unwrap();
+
+    assert_eq!(t.operations().len(), before + 1);
+    assert_eq!(
+        (t.own("Name").as_deref(), t.catalogue().as_deref()),
+        (Some("Velo"), Some("ROOK002"))
+    );
+    assert!(matches!(t.undo(), UndoOutcome::Undone { .. }));
+    assert_eq!(
+        (t.own("Name"), t.catalogue().as_deref()),
+        (None, Some("ROOK001"))
+    );
+}
+
+#[test]
+fn use_marks_the_track_due_for_the_index() {
+    let t = track("Kit - Velo.mp3");
+    t.lib.settle();
+    let due = || {
+        let recording = t.recording;
+        t.lib
+            .writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT EXISTS (SELECT 1 FROM search_due WHERE recording_id = ?1)",
+                    [recording],
+                    |r| r.get::<_, bool>(0),
+                )
+            })
+            .unwrap()
+    };
+    assert!(!due());
+    t.use_these(&[("Label", "Rook Records")]).unwrap();
+    assert!(due());
+}
+
+#[test]
 fn after_use_the_next_send_carries_the_new_values_and_never_the_catalogue_number() {
     let t = track("Kit - Velo.mp3");
     t.lib.tag(t.file, &[("Name", "Velo"), ("Artist", "Kit")]);
@@ -476,10 +570,13 @@ fn the_catalogue_number_is_kept_shown_as_current_changed_by_use_and_put_back_by_
     let t = track("Kit - Velo [ROOK001].mp3");
     t.use_these(&[("CatalogueNumber", "rook001")]).unwrap();
     assert_eq!(t.catalogue().as_deref(), Some("rook001"));
-    // Equal but for case: no longer suggested.
+    // Different in letter case: still suggested.
+    assert_eq!(t.values(IdentifyField::CatalogueNumber), ["ROOK001"]);
+    t.use_these(&[("CatalogueNumber", "rook001 ")]).unwrap();
     assert_eq!(
-        t.field(IdentifyField::CatalogueNumber),
-        (Some("rook001".to_owned()), vec![])
+        t.operations().len(),
+        1,
+        "the same value again changes nothing"
     );
 
     t.use_these(&[("CatalogueNumber", "ROOK001")]).unwrap();
@@ -508,7 +605,7 @@ type Refusal = (Choices, fn(&UseError) -> bool);
 #[test]
 fn use_refuses_what_it_cant_set_and_changes_nothing() {
     let t = track("Velo.mp3");
-    let refused: [Refusal; 7] = [
+    let refused: [Refusal; 10] = [
         (
             &[("Name", "Velo"), ("Genre", "House")],
             |e| matches!(e, UseError::UnknownField(f) if f == "Genre"),
@@ -521,6 +618,15 @@ fn use_refuses_what_it_cant_set_and_changes_nothing() {
         }),
         (&[("Label", "  ")], |e| {
             matches!(e, UseError::ValueEmpty(IdentifyField::Label))
+        }),
+        (&[("Year", "0")], |e| {
+            matches!(e, UseError::NotSendable(IdentifyField::Year))
+        }),
+        (&[("Year", "99")], |e| {
+            matches!(e, UseError::NotSendable(IdentifyField::Year))
+        }),
+        (&[("Year", "10000")], |e| {
+            matches!(e, UseError::NotSendable(IdentifyField::Year))
         }),
         (&[("Year", "next year")], |e| {
             matches!(e, UseError::NotSendable(IdentifyField::Year))

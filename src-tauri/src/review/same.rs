@@ -469,15 +469,32 @@ fn fold(
             keep.library_track.0,
         )?;
     }
+    //    Its catalogue number (2.2, 6A-S1): to the track that stays when
+    //    that one has none; the staying track's own is kept otherwise.
+    let number_of = |rec: &Recorder<'_>, track: LibraryTrackId| -> Result<Option<i64>, OpsError> {
+        Ok(rec
+            .read_rows(
+                "SELECT id FROM catalogue_number WHERE library_track_id = ?1",
+                [track.0],
+                |r| r.get(0),
+            )?
+            .pop())
+    };
+    if let Some(number) = number_of(rec, leaving.library_track)? {
+        if number_of(rec, keep.library_track)?.is_some() {
+            rec.delete("catalogue_number", number)?;
+        } else {
+            rec.set(
+                "catalogue_number",
+                number,
+                "library_track_id",
+                keep.library_track.0,
+            )?;
+        }
+    }
     // 3. Its sync bases, sent playlist entries, conflicts, the app's own
-    //    values, its catalogue number and Library track.
-    for table in [
-        "sync_base",
-        "sent_entry",
-        "conflict",
-        "app_value",
-        "catalogue_number",
-    ] {
+    //    values and Library track.
+    for table in ["sync_base", "sent_entry", "conflict", "app_value"] {
         let rows: Vec<i64> = rec.read_rows(
             &format!("SELECT id FROM {table} WHERE library_track_id = ?1 ORDER BY id"),
             [leaving.library_track.0],

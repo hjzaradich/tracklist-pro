@@ -10,6 +10,15 @@
 //! migration 0057). Not here: ISRC, BPM, key, genre (it has its own flow,
 //! `genre::own`) and artwork.
 //!
+//! **Name and Mix, for every source** (online ones included, job S2): a
+//! `Name` suggestion is the title as the source spells it, **with** a
+//! version it writes in it ("Velo (Extended Mix)", as rekordbox's own
+//! `Name` usually is), and the version is offered on its own as `Mix`
+//! ("Extended Mix"), read from that title by `versions`. So a title tag and
+//! a file name that say the same agree on both fields.
+//!
+//! A `Year` is four digits, 1000-9999, the years the tag map reads.
+//!
 //! # Suggestions ([`suggestions`], command [`identify_suggestions`])
 //!
 //! Per field: the **current value**, which is what the next send would
@@ -19,12 +28,13 @@
 //! value with every source that gave it ([`IdentifySource`]). The rules
 //! (`rank`):
 //!
-//! - Values the same once outer blanks are dropped, runs of blanks read as
-//!   one and letter case is ignored are **one suggestion** with all their
-//!   sources, spelled the best-cased way ("Velo Records" over "VELO
-//!   RECORDS"; among equals the strongest source's).
-//! - A suggestion equal to the current value (the same way) is dropped, and
-//!   so is one the field can't take ("Use" would refuse it).
+//! - Values the same once outer blanks are dropped and runs of blanks read
+//!   as one are **one suggestion** with all their sources. Letter case
+//!   counts (1.10 counts a change of case as a change): "VELO" and "Velo"
+//!   are two suggestions.
+//! - A suggestion equal to the current value (the same way) is dropped, so
+//!   a fix of letter case alone is offered. One the field can't take is
+//!   dropped too ("Use" would refuse it).
 //! - Ranked by number of sources, then by the strongest source (the linked
 //!   file's tags, then a sibling file's, then a file's name, then online),
 //!   then by the text: the same order every time.
@@ -49,8 +59,10 @@
 //! change made in rekordbox is taken in or is a conflict, as for any field.
 //! Audio files are never written. It refuses, changing nothing: a field not
 //! listed above, a blank value (clearing a field isn't Use), a value its
-//! field can't take or rekordbox's XML can't carry, and a track that isn't a
-//! Library track.
+//! field can't take (a `Year` that isn't 1000-9999) or rekordbox's XML can't
+//! carry, and a track that isn't a Library track. A merge of two Library
+//! tracks gives the staying track the leaving one's catalogue number when
+//! it has none of its own (`review::same`).
 
 mod choose;
 mod offline;

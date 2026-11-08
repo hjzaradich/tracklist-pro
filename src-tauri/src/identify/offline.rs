@@ -10,8 +10,10 @@
 //!   (`versions::parse_title`). Only markers the parser is sure of count.
 //! - **The file's name** ([`IdentifySource::FileName`]), by
 //!   `versions::parse_file_name` ("Artist - Title (Mix).mp3"): `Name` (the
-//!   title without its version), `Artist`, `Mix`, `Remixer`, `Year` (a
-//!   "(2011)" bracket) and the catalogue number (a "[ABC123]" bracket).
+//!   title with its version as written, by the convention in [`super`]),
+//!   `Artist`, `Mix`, `Remixer`, `Year` (a "(2011)" bracket) and the
+//!   catalogue number (a "[ABC123]" bracket). Junk such as a track number
+//!   or the extension is left out.
 //! - **Sibling files** ([`IdentifySource::Sibling`]): the same reading of
 //!   the tags of the track's other files that are on disk and not hidden,
 //!   best file first; their names count as [`IdentifySource::FileName`].
@@ -135,7 +137,7 @@ fn from_tags(file: &StoredFile, source: IdentifySource, out: &mut Vec<Candidate>
 fn from_name(file: &NamedFile, out: &mut Vec<Candidate>) {
     let source = IdentifySource::FileName { file: file.clone() };
     let parsed = parse_file_name(&file.name);
-    push(out, IdentifyField::Name, parsed.base_title.clone(), &source);
+    push(out, IdentifyField::Name, titled(&parsed), &source);
     let named = |role| {
         parsed
             .credits
@@ -171,9 +173,8 @@ fn push_version(parsed: &ParsedName, source: &IdentifySource, out: &mut Vec<Cand
     if sure.is_empty() {
         return;
     }
-    let mix = sure
-        .iter()
-        .map(|m| unbracketed(&m.text))
+    let mix = distinct_texts(sure.iter().copied())
+        .map(unbracketed)
         .collect::<Vec<_>>()
         .join(" ");
     push(out, IdentifyField::Mix, mix, source);
@@ -191,6 +192,37 @@ fn push_version(parsed: &ParsedName, source: &IdentifySource, out: &mut Vec<Cand
             push(out, IdentifyField::Remixer, by.clone(), source);
         }
     }
+}
+
+/// The texts of `markers` as written, each once in a row (one bracket can
+/// hold several markers: "(Extended Instrumental Mix)").
+fn distinct_texts<'a>(
+    markers: impl Iterator<Item = &'a crate::versions::Marker>,
+) -> impl Iterator<Item = &'a str> {
+    let mut last: Option<&str> = None;
+    markers.filter_map(move |m| {
+        let text = m.text.as_str();
+        (last.replace(text) != Some(text)).then_some(text)
+    })
+}
+
+/// A name's title with its version as written ("Velo (Extended Mix)", "Velo
+/// - Radio Edit"): the `Name` convention of [`super`].
+fn titled(parsed: &ParsedName) -> String {
+    let mut title = parsed.base_title.clone();
+    let mut last: Option<&str> = None;
+    for marker in &parsed.markers {
+        if last.replace(marker.text.as_str()) == Some(marker.text.as_str()) {
+            continue;
+        }
+        if marker.form == crate::versions::MarkerForm::DashSegment {
+            title.push_str(" - ");
+        } else {
+            title.push(' ');
+        }
+        title.push_str(marker.text.trim());
+    }
+    title
 }
 
 /// A marker or bracket as written, without its brackets or a leading " - ".

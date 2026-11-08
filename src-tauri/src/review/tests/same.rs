@@ -664,6 +664,58 @@ fn a_merge_deletes_the_app_values_of_the_track_that_leaves_and_undo_puts_them_ba
     assert_eq!(values(), before);
 }
 
+impl Twice {
+    /// The catalogue numbers kept (2.2, 6A-S1), as "library track: value".
+    fn catalogue_numbers(&self) -> Vec<String> {
+        self.db
+            .writer
+            .call(|c| {
+                c.prepare(
+                    "SELECT library_track_id || ': ' || value FROM catalogue_number ORDER BY id",
+                )?
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()
+            })
+            .unwrap()
+    }
+}
+
+#[test]
+fn a_merge_gives_the_staying_track_the_leaving_ones_catalogue_number_when_it_has_none() {
+    let t = Twice::new();
+    t.entry(t.a, 1, 0, 1, 120.0);
+    t.entry(t.b, 1, 0, 1, 120.0);
+    let (lt_keep, lt_leave) = (t.lt(t.ta), t.lt(t.tb));
+    t.db.sql(&format!(
+        "INSERT INTO catalogue_number (library_track_id, value) VALUES ({lt_leave}, 'ROOK001');"
+    ));
+
+    t.merge(&t.both(), t.ta).unwrap();
+
+    assert_eq!(t.catalogue_numbers(), [format!("{lt_keep}: ROOK001")]);
+    assert!(matches!(t.undo(), UndoOutcome::Undone { .. }));
+    assert_eq!(t.catalogue_numbers(), [format!("{lt_leave}: ROOK001")]);
+}
+
+#[test]
+fn a_merge_keeps_the_staying_tracks_own_catalogue_number_and_undo_puts_both_back() {
+    let t = Twice::new();
+    t.entry(t.a, 1, 0, 1, 120.0);
+    t.entry(t.b, 1, 0, 1, 120.0);
+    let (lt_keep, lt_leave) = (t.lt(t.ta), t.lt(t.tb));
+    t.db.sql(&format!(
+        "INSERT INTO catalogue_number (library_track_id, value)
+             VALUES ({lt_keep}, 'ROOK001'), ({lt_leave}, 'KIT002');"
+    ));
+    let before = t.catalogue_numbers();
+
+    t.merge(&t.both(), t.ta).unwrap();
+
+    assert_eq!(t.catalogue_numbers(), [format!("{lt_keep}: ROOK001")]);
+    assert!(matches!(t.undo(), UndoOutcome::Undone { .. }));
+    assert_eq!(t.catalogue_numbers(), before);
+}
+
 #[test]
 fn a_merge_deletes_the_sent_playlist_entries_of_the_track_that_leaves_and_undo_puts_them_back() {
     // Like its sync bases: the entries were the leaving track's rekordbox
