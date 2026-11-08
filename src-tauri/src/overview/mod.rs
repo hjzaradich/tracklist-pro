@@ -601,6 +601,7 @@ fn missing_tags_sql(scoped: bool) -> String {
     let shown = crate::attach::shown_entry_sql("lt.recording_id");
     format!(
         "SELECT s.id, s.rb, s.title, s.artist, s.fid, s.present, s.kn, s.ka,
+                s.app_name, s.app_artist,
                 CASE WHEN s.fid IS NOT NULL AND ({tag_needed}) THEN (
                     SELECT json_group_object(b.block, json(b.items)) FROM (
                         SELECT blk.key AS block, json_group_array(json(i.value)) AS items
@@ -609,6 +610,10 @@ fn missing_tags_sql(scoped: bool) -> String {
                         GROUP BY blk.key) b) END AS digest
          FROM (SELECT lt.id AS id, lt.linked_file_id AS fid, r.title AS title,
                       r.artist AS artist, f.present AS present,
+                      EXISTS (SELECT 1 FROM app_value av WHERE av.library_track_id = lt.id
+                                AND av.field = 'Name') AS app_name,
+                      EXISTS (SELECT 1 FROM app_value av WHERE av.library_track_id = lt.id
+                                AND av.field = 'Artist') AS app_artist,
                       {rekordbox_genre} AS rb, {rekordbox_name} AS kn, {rekordbox_artist} AS ka
                FROM library_track lt
                LEFT JOIN recording r ON r.id = lt.recording_id
@@ -814,7 +819,7 @@ pub(crate) fn missing_tag_ids_given(
     while let Some(row) = rows.next()? {
         let id: i64 = row.get(0)?;
         let rb: Option<String> = row.get(1)?;
-        let digest: Option<String> = row.get(8)?;
+        let digest: Option<String> = row.get(10)?;
         let has_genre = match genres {
             Some(genres) => genres.contains_key(&id),
             None => *genre_known
@@ -833,12 +838,17 @@ pub(crate) fn missing_tag_ids_given(
         let present: Option<bool> = row.get(5)?;
         let known_name: Option<String> = row.get(6)?;
         let known_artist: Option<String> = row.get(7)?;
+        // The app holds its own `Name` or `Artist` (even a blank one): only
+        // `shown_tags` says what that makes of the title or the artist.
+        let app_name: bool = row.get(8)?;
+        let app_artist: bool = row.get(9)?;
         // For one of title and artist: `Some(has one)` when the values at
         // hand settle it, `None` when `shown_tags` has to.
-        let mut settle = |own: &Option<String>,
+        let mut settle = |app: bool,
+                          own: &Option<String>,
                           known: &Option<String>,
                           from_tags: &dyn Fn(&(bool, bool)) -> bool| {
-            if ask_all || linked.is_none() {
+            if ask_all || app || linked.is_none() {
                 None
             } else if filled(own) {
                 Some(true)
@@ -867,8 +877,8 @@ pub(crate) fn missing_tag_ids_given(
                 None
             }
         };
-        let title = settle(&own_title, &known_name, &|g| g.0);
-        let artist = settle(&own_artist, &known_artist, &|g| g.1);
+        let title = settle(app_name, &own_title, &known_name, &|g| g.0);
+        let artist = settle(app_artist, &own_artist, &known_artist, &|g| g.1);
         match (title, artist) {
             (Some(true), Some(true)) => {}
             (Some(false), _) | (_, Some(false)) => missing.push(id),

@@ -4623,8 +4623,8 @@ export type ValueOrigin =
 "file" | 
 /**
  *  The user's own edit in the app (the app's own value of the field,
- *  `app_value`): today only a genre set with "Use" (`genre::own`) shows
- *  so.
+ *  `app_value`): a genre set with "Use" (`genre::own`), or any
+ *  of the listed fields (`OWN_LISTED_FIELDS`) and `Year`.
  */
 "yours";
 

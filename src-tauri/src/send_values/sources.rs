@@ -92,8 +92,8 @@ pub enum ValueOrigin {
     /// A tag in one of the track's files (named in [`SourcedValue::file`]).
     File,
     /// The user's own edit in the app (the app's own value of the field,
-    /// `app_value`): today only a genre set with "Use" (`genre::own`) shows
-    /// so.
+    /// `app_value`): a genre set with "Use" (`genre::own`), or any
+    /// of the listed fields (`OWN_LISTED_FIELDS`) and `Year`.
     Yours,
 }
 
@@ -284,8 +284,14 @@ fn of_library_track(
             .collect();
     let attributes = entry.and_then(|entry| loaded.attributes.get(&entry));
     let mut fields = fields_from(attributes.map(Vec::as_slice), &files);
-    if let Some(own) = crate::genre::own::own_genres(conn, &[id])?.remove(&id) {
-        with_own(&mut fields, TagField::Genre, &own);
+    // The app's own values come first, as the lists show them.
+    let mut own = super::shown::own_values(conn, &[id], &OWN_SHOWN_FIELDS)?
+        .remove(&id)
+        .unwrap_or_default();
+    for field in TagField::ALL {
+        if let Some(value) = own.remove(field.attribute()) {
+            with_own(&mut fields, field, &value);
+        }
     }
     Ok(TagSources {
         in_rekordbox: entry.is_some(),
@@ -293,6 +299,11 @@ fn of_library_track(
         confirmed_entry: confirmed_entry(conn, &loaded, row)?,
     })
 }
+
+/// The fields the Details panel shows the app's own value of, first.
+const OWN_SHOWN_FIELDS: [&str; 7] = [
+    "Name", "Artist", "Album", "Genre", "Remixer", "Label", "Year",
+];
 
 /// Puts the user's own value of `field` first, as the lists show it (the
 /// genre, `send_values::shown_fields`): the value the field showed before
