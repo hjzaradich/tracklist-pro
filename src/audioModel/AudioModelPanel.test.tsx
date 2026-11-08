@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
-import type { AudioModelStatus, Guesses, SoundsLike } from "../bindings";
+import type { AudioModelStatus, Guesses, SoundsLike, YourGenre } from "../bindings";
 import "../i18n";
 import { useSelectedTrack } from "../shell/selectedTrack";
 import { tableRow } from "../test/trackTableIpc";
@@ -26,6 +26,9 @@ const READY_GUESSES: Guesses = {
 let status: AudioModelStatus;
 let guesses: Guesses;
 let similar: SoundsLike;
+let yours: YourGenre[];
+/** When set, set_genre refuses with this error. */
+let refusal: unknown;
 let asked: string[];
 /** What set_genre was asked, in order. */
 let setGenre: unknown[];
@@ -44,6 +47,8 @@ beforeEach(() => {
   status = STATUS;
   guesses = READY_GUESSES;
   similar = { state: "ready", tracks: [] };
+  yours = [];
+  refusal = null;
   asked = [];
   setGenre = [];
   track = tableRow(1);
@@ -52,8 +57,11 @@ beforeEach(() => {
     asked.push(cmd);
     switch (cmd) {
       case "set_genre":
+        if (refusal !== null) throw refusal;
         setGenre.push(args);
         return 7;
+      case "audio_model_your_genres":
+        return yours;
       case "audio_model_status":
         return status;
       case "audio_model_guesses":
@@ -199,5 +207,82 @@ describe("AudioModelPanel", () => {
     renderPanel();
     await userEvent.click(await screen.findByRole("button", { name: /Synthetic Tune 2/ }));
     expect(useSelectedTrack.getState().row).toEqual(other);
+  });
+
+  describe("Your genres", () => {
+    const YOURS: YourGenre[] = [
+      { node: 11, name: "Peak Time Techno", percent: 82 },
+      { node: 12, name: "Warehouse", percent: 55 },
+      { node: 13, name: "Acid", percent: 31 },
+    ];
+    const guessText = (genre: YourGenre) => tx("audioModel:guess", { label: genre.name, percent: genre.percent });
+    const buttonName = (name: string) => tx("audioModel:useGenre", { genre: name });
+
+    it("shows up to 3 of your genres with their percent, labelled as the model's opinion from your own genres", async () => {
+      yours = YOURS;
+      renderPanel();
+      const list = await screen.findByRole("list", { name: tx("audioModel:yourGenres.title") });
+      expect(within(list).getAllByRole("listitem").map((item) => item.querySelector("span")?.textContent)).toEqual(
+        YOURS.map(guessText),
+      );
+      expect(screen.getByText(tx("audioModel:yourGenres.opinion"))).toBeVisible();
+    });
+
+    it("Use sets the track's genre to the genre's name, once, and says what it did", async () => {
+      yours = YOURS;
+      renderPanel();
+      await userEvent.click(await screen.findByRole("button", { name: buttonName("Warehouse") }));
+      await waitFor(() => expect(setGenre).toEqual([{ libraryTrack: track.libraryTrackId, name: "Warehouse" }]));
+      expect(await screen.findByText(tx("audioModel:used", { genre: "Warehouse" }))).toBeVisible();
+    });
+
+    it("asks for the guesses again after a Use", async () => {
+      yours = YOURS;
+      renderPanel();
+      await userEvent.click(await screen.findByRole("button", { name: buttonName("Acid") }));
+      await waitFor(() => expect(setGenre).toHaveLength(1));
+      await waitFor(() => expect(asked.filter((cmd) => cmd === "audio_model_your_genres").length).toBeGreaterThan(1));
+    });
+
+    it("shows no Use for the genre the track already has", async () => {
+      yours = YOURS;
+      track = tableRow(1, { genre: "Warehouse" });
+      renderPanel();
+      await screen.findByRole("button", { name: buttonName("Acid") });
+      expect(screen.queryByRole("button", { name: buttonName("Warehouse") })).toBeNull();
+      expect(screen.getByText(guessText(YOURS[1]!))).toBeVisible();
+    });
+
+    it("shows no Use for a track outside the Library", async () => {
+      yours = YOURS;
+      track = tableRow(1, { libraryTrackId: null, inLibrary: false });
+      renderPanel();
+      const panel = await screen.findByRole("region", { name: tx("audioModel:title") });
+      await within(panel).findByText(guessText(YOURS[0]!));
+      for (const genre of YOURS) expect(within(panel).queryByRole("button", { name: buttonName(genre.name) })).toBeNull();
+    });
+
+    it("says there is no guess from your genres, and what the model needs, when the list is empty", async () => {
+      renderPanel();
+      expect(await screen.findByText(tx("audioModel:yourGenres.none"))).toBeVisible();
+      expect(screen.queryByRole("list", { name: tx("audioModel:yourGenres.title") })).toBeNull();
+    });
+
+    it("shows the refusal plainly when the genre's name can't be sent", async () => {
+      yours = YOURS;
+      refusal = { kind: "genreNameNotSendable", params: {} };
+      renderPanel();
+      await userEvent.click(await screen.findByRole("button", { name: buttonName("Acid") }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(tx("genre:error.notSendable"));
+      expect(setGenre).toEqual([]);
+    });
+
+    it("leaves the generic genre guesses and their Use as they were", async () => {
+      yours = YOURS;
+      renderPanel();
+      const panel = await screen.findByRole("region", { name: tx("audioModel:title") });
+      expect(await within(panel).findByText(tx("audioModel:guess", { label: tx("audioModel:label.techno"), percent: 84 }))).toBeVisible();
+      expect(await within(panel).findAllByRole("button", { name: useName })).toHaveLength(2);
+    });
   });
 });

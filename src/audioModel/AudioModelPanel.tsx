@@ -1,10 +1,12 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
-import type { Guess, PanelState, TableRow } from "../bindings";
+import { reloadLists } from "../app/lists";
+import type { Guess, PanelState, TableRow, YourGenre } from "../bindings";
 import { useSelectedTrack } from "../shell/selectedTrack";
 import { useSetGenre } from "../trackTable/useSetGenre";
-import { useAudioGuesses, useAudioModelStatus, useSoundsLike } from "./useAudioModel";
+import { useAudioGuesses, useAudioModelStatus, useSoundsLike, useYourGenres } from "./useAudioModel";
 import styles from "./AudioModelPanel.module.css";
 
 /** The keys of the labels the model can guess; a Rust test checks the backend sends only these. */
@@ -54,6 +56,7 @@ function Panel({ row, listened, total }: { row: TableRow; listened: number; tota
             <GenreGuesses row={row} guesses={guesses.data.genres} />
             <GuessLine name={t("mood")} guesses={guesses.data.mood === null ? [] : [guesses.data.mood]} none={t("noMood")} />
           </dl>
+          <YourGenres row={row} />
           <SoundsLike row={row} />
         </>
       )}
@@ -141,6 +144,72 @@ function GenreGuesses({ row, guesses }: { row: TableRow; guesses: Guess[] }) {
           {setGenre.isSuccess && setGenre.data !== null ? t("used", { genre: setGenre.variables.name }) : ""}
         </p>
       </dd>
+    </div>
+  );
+}
+
+/**
+ * "Your genres": up to 3 of your own genres the model hears in the track,
+ * learned from the genres you gave your other tracks. The percent is how sure
+ * the model is, not a chance. Each has "Use" under the same rules as the
+ * generic guesses (Library tracks only, none for the genre the track has).
+ * After a Use the guesses are asked for again.
+ */
+function YourGenres({ row }: { row: TableRow }) {
+  const { t } = useTranslation("audioModel");
+  const headingId = useId();
+  const queryClient = useQueryClient();
+  const genres = useYourGenres(row.recordingId);
+  const setGenre = useSetGenre();
+  const libraryTrackId = row.libraryTrackId;
+  const use = (name: string) => {
+    if (libraryTrackId === null) return;
+    setGenre.mutate({ libraryTrackId, name }, { onSuccess: () => void reloadLists(queryClient, "audioModel") });
+  };
+  return (
+    <div>
+      <h4 id={headingId} className={styles.subheading}>
+        {t("yourGenres.title")}
+      </h4>
+      <p className={styles.quiet}>{t("yourGenres.opinion")}</p>
+      {genres.isError && (
+        <p role="alert" className={styles.error}>
+          {errorMessage(genres.error)}
+        </p>
+      )}
+      {genres.isPending && <p className={styles.quiet}>{t("loading")}</p>}
+      {genres.data !== undefined && genres.data.length === 0 && <p className={styles.quiet}>{t("yourGenres.none")}</p>}
+      {genres.data !== undefined && genres.data.length > 0 && (
+        <ul aria-labelledby={headingId} className={styles.genreGuesses}>
+          {genres.data.map((genre: YourGenre) => {
+            const usable = libraryTrackId !== null && row.genre?.trim() !== genre.name.trim();
+            return (
+              <li key={genre.node} className={styles.genreGuess}>
+                <span>{t("guess", { label: genre.name, percent: genre.percent })}</span>
+                {usable && (
+                  <button
+                    type="button"
+                    className={styles.use}
+                    aria-label={t("useGenre", { genre: genre.name })}
+                    disabled={setGenre.isPending}
+                    onClick={() => use(genre.name)}
+                  >
+                    {t("use")}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {setGenre.isError && (
+        <p role="alert" className={styles.error}>
+          {errorMessage(setGenre.error)}
+        </p>
+      )}
+      <p role="status" className={styles.quiet}>
+        {setGenre.isSuccess && setGenre.data !== null ? t("used", { genre: setGenre.variables.name }) : ""}
+      </p>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { unwrap } from "../api/errors";
-import { commands, type AudioModelStatus, type Guesses, type SoundsLike } from "../bindings";
+import { commands, type AudioModelStatus, type Guesses, type SoundsLike, type YourGenre } from "../bindings";
 
 // The audio model (ROADMAP 3.8): off until the owner turns it on in Settings.
 // Everything it shows is its opinion, read from what it stored; nothing here
@@ -42,5 +42,16 @@ export function useSoundsLike(recordingId: number, enabled: boolean) {
     queryKey: [...AUDIO_MODEL_QUERY_KEY, "soundsLike", recordingId],
     queryFn: (): Promise<SoundsLike> => unwrap(commands.soundsLike(recordingId)),
     enabled,
+  });
+}
+
+/**
+ * Up to 3 of your own genres the model hears in a track, learned from your
+ * own genres. Empty when it has none to say; the reply doesn't say why.
+ */
+export function useYourGenres(recordingId: number) {
+  return useQuery({
+    queryKey: [...AUDIO_MODEL_QUERY_KEY, "yourGenres", recordingId],
+    queryFn: (): Promise<YourGenre[]> => unwrap(commands.audioModelYourGenres(recordingId)),
   });
 }
