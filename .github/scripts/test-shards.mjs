@@ -79,6 +79,7 @@ export const SHARDS = [
     lib: [
       "after_send", "attach", "audio_model", "audio_preview", "bundle", "conflict_review", "energy", "energy_stars", "estimate", "file_roles", "fragile", "genre", "genre", "hash",
       "credentials", "diagnostics",
+      "identify",
       "hidden", "inbox", "ipc", "missing", "net", "next", "ops", "paths", "play_history", "playlists", "preview", "read", "rekordbox_write", "relink", "review",
       "scan_state", "search", "send", "send_values", "settings", "sniff", "start", "suggest", "tags", "ui_setting", "update",
       "vocab", "volume", "waveform", "wishlist",

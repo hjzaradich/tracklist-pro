@@ -329,6 +329,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0055_embedding.sql", &["embedding", "embedding_failure"]),
     // The genre model learned from the user's own tracks (3.8, 5B-B3a).
     ("0056_genre_model.sql", &["genre_model", "genre_model_node"]),
+    // The app's own catalogue number per Library track, never sent (2.2, 6A-S1).
+    ("0057_catalogue_number.sql", &["catalogue_number"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

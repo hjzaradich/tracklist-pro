@@ -102,6 +102,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0054_file_estimate_key"),
     migration!("0055_embedding"),
     migration!("0056_genre_model"),
+    migration!("0057_catalogue_number"),
 ];
 
 /// The table that records which migrations a database has had.

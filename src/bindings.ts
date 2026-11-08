@@ -441,6 +441,18 @@ export const commands = {
 	 */
 	setGenre: (libraryTrack: LibraryTrackId, name: string) => typedError<number | null, IpcError>(__TAURI_INVOKE("set_genre", { libraryTrack, name })),
 	/**
+	 *  What identification suggests for a Library track's details, from its own
+	 *  files (ROADMAP 2.2). Works with every online service off.
+	 */
+	identifySuggestions: (libraryTrackId: LibraryTrackId) => typedError<IdentifySuggestions, IpcError>(__TAURI_INVOKE("identify_suggestions", { libraryTrackId })),
+	/**
+	 *  "Use" on suggestions: sets each chosen field of a Library track as the
+	 *  app's own value (the catalogue number in its own table), as one
+	 *  operation, one Undo. Answers the operation recorded, none if nothing
+	 *  changed.
+	 */
+	identifyUse: (libraryTrackId: LibraryTrackId, choices: IdentifyChoice[]) => typedError<number | null, IpcError>(__TAURI_INVOKE("identify_use", { libraryTrackId, choices })),
+	/**
 	 *  How many Library tracks there are, and a stamp that moves when the list
 	 *  of them would come back different. Cheap at any size: no list is read.
 	 */
@@ -872,7 +884,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","bundleBackupNotFound":"settings:bundle.error.backupNotFound","bundleDamaged":"settings:bundle.error.damaged","bundleNewer":"settings:bundle.error.newer","bundleNotOurs":"settings:bundle.error.notOurs","bundleNothingStaged":"settings:bundle.error.nothingStaged","bundleTooLarge":"settings:bundle.error.tooLarge","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","genreAliasTaken":"genre:error.aliasTaken","genreMoveIntoItself":"genre:error.moveIntoItself","genreNameEmpty":"genre:error.nameEmpty","genreNameNotSendable":"genre:error.notSendable","genreNameTaken":"genre:error.nameTaken","genreNotFound":"genre:error.notFound","genreTextTooLong":"genre:error.textTooLong","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","playlistEntryNotFound":"playlists:error.entryNotFound","playlistNameEmpty":"playlists:error.nameEmpty","playlistNameTaken":"playlists:error.nameTaken","playlistNameUnsendable":"playlists:error.nameUnsendable","playlistNotFound":"playlists:error.notFound","playlistOrderStale":"playlists:error.orderStale","rekordboxPlaylistNotFound":"playlists:error.rekordboxPlaylistNotFound","rekordboxXmlNotFound":"rekordbox:error.notFound","relocateNoKnownFiles":"musicFolders:relocateNoKnownFiles","relocateNotMissing":"musicFolders:relocateNotMissing","relocateOverlaps":"musicFolders:relocateOverlaps","relocateTooFewFiles":"musicFolders:relocateTooFewFiles","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","saveBadName":"settings:bundle.save.badName","saveExists":"settings:bundle.save.exists","saveFolderMissing":"settings:bundle.save.folderMissing","saveFolderNotPlain":"settings:bundle.save.folderNotPlain","saveGigStick":"settings:bundle.save.gigStick","saveInAppData":"settings:bundle.save.inAppData","saveInMusicFolder":"settings:bundle.save.inMusicFolder","saveInRekordboxFolder":"settings:bundle.save.inRekordboxFolder","saveNotABundle":"settings:bundle.save.notABundle","saveNotZip":"settings:bundle.save.notZip","sendNeedsExport":"rekordbox:error.sendNeedsExport","smartRuleTooLong":"smartCrates:error.ruleTooLong","stopped":"errors:stopped","tagColourInvalid":"vocab:error.colourInvalid","tagGroupNotFound":"vocab:error.groupNotFound","tagNameEmpty":"vocab:error.nameEmpty","tagNameTaken":"vocab:error.nameTaken","tagNameUnsendable":"vocab:error.nameUnsendable","tagNotFound":"vocab:error.tagNotFound","xmlOlderThanDatabaseRead":"rekordbox:error.xmlOlderThanDatabaseRead"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","bundleBackupNotFound":"settings:bundle.error.backupNotFound","bundleDamaged":"settings:bundle.error.damaged","bundleNewer":"settings:bundle.error.newer","bundleNotOurs":"settings:bundle.error.notOurs","bundleNothingStaged":"settings:bundle.error.nothingStaged","bundleTooLarge":"settings:bundle.error.tooLarge","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","genreAliasTaken":"genre:error.aliasTaken","genreMoveIntoItself":"genre:error.moveIntoItself","genreNameEmpty":"genre:error.nameEmpty","genreNameNotSendable":"genre:error.notSendable","genreNameTaken":"genre:error.nameTaken","genreNotFound":"genre:error.notFound","genreTextTooLong":"genre:error.textTooLong","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","identifyFieldUnknown":"identify:error.fieldUnknown","identifyValueEmpty":"identify:error.valueEmpty","identifyValueNotSendable":"identify:error.notSendable","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","playlistEntryNotFound":"playlists:error.entryNotFound","playlistNameEmpty":"playlists:error.nameEmpty","playlistNameTaken":"playlists:error.nameTaken","playlistNameUnsendable":"playlists:error.nameUnsendable","playlistNotFound":"playlists:error.notFound","playlistOrderStale":"playlists:error.orderStale","rekordboxPlaylistNotFound":"playlists:error.rekordboxPlaylistNotFound","rekordboxXmlNotFound":"rekordbox:error.notFound","relocateNoKnownFiles":"musicFolders:relocateNoKnownFiles","relocateNotMissing":"musicFolders:relocateNotMissing","relocateOverlaps":"musicFolders:relocateOverlaps","relocateTooFewFiles":"musicFolders:relocateTooFewFiles","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","saveBadName":"settings:bundle.save.badName","saveExists":"settings:bundle.save.exists","saveFolderMissing":"settings:bundle.save.folderMissing","saveFolderNotPlain":"settings:bundle.save.folderNotPlain","saveGigStick":"settings:bundle.save.gigStick","saveInAppData":"settings:bundle.save.inAppData","saveInMusicFolder":"settings:bundle.save.inMusicFolder","saveInRekordboxFolder":"settings:bundle.save.inRekordboxFolder","saveNotABundle":"settings:bundle.save.notABundle","saveNotZip":"settings:bundle.save.notZip","sendNeedsExport":"rekordbox:error.sendNeedsExport","smartRuleTooLong":"smartCrates:error.ruleTooLong","stopped":"errors:stopped","tagColourInvalid":"vocab:error.colourInvalid","tagGroupNotFound":"vocab:error.groupNotFound","tagNameEmpty":"vocab:error.nameEmpty","tagNameTaken":"vocab:error.nameTaken","tagNameUnsendable":"vocab:error.nameUnsendable","tagNotFound":"vocab:error.tagNotFound","xmlOlderThanDatabaseRead":"rekordbox:error.xmlOlderThanDatabaseRead"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -1713,6 +1725,15 @@ export type ErrorKind =
  *  send couldn't write it as a track's genre.
  */
 "genreNameNotSendable" | 
+/**  "Use" on a look-up named a field it doesn't set (2.2, `identify`). */
+"identifyFieldUnknown" | 
+/**  "Use" on a look-up was given a blank value: clearing a field isn't Use. */
+"identifyValueEmpty" | 
+/**
+ *  A value "Use" was given isn't one of its field's kind (a year that
+ *  isn't a number) or holds a character rekordbox's XML can't carry.
+ */
+"identifyValueNotSendable" | 
 /**  There is no playlist with that id (it was deleted meanwhile). */
 "playlistNotFound" | 
 /**  The entry to move tracks before is no longer in the playlist. */
@@ -2089,6 +2110,59 @@ export type HistoryRefusal =
 "alreadyImported" | "noSuchSession" | 
 /**  Not a day of the calendar as `YYYY-MM-DD`. */
 "badDate";
+
+/**
+ *  One value the user chose for one field. `field` is an
+ *  [`IdentifyField`]'s name ("Name", …, "CatalogueNumber").
+ */
+export type IdentifyChoice = {
+	field: string,
+	value: string,
+};
+
+/**
+ *  A field identification suggests and "Use" sets, by its rekordbox
+ *  attribute name; the catalogue number has none (it is never sent).
+ */
+export type IdentifyField = "Name" | "Artist" | "Mix" | "Remixer" | "Label" | "Year" | "Album" | "CatalogueNumber";
+
+/**  One field: what the next send carries now and the ranked suggestions. */
+export type IdentifyFieldSuggestions = {
+	field: IdentifyField,
+	/**
+	 *  `None` when the field has no value. For the catalogue number, the
+	 *  one the app keeps.
+	 */
+	current: string | null,
+	suggestions: IdentifySuggestion[],
+};
+
+/**  Where a suggested value came from. */
+export type IdentifySource = 
+/**  The tags of the track's linked file. */
+{ kind: "tags"; file: NamedFile } | 
+/**  A file's name, read as "Artist - Title (Mix)". */
+{ kind: "fileName"; file: NamedFile } | 
+/**  The tags of another file of the same track. */
+{ kind: "sibling"; file: NamedFile } | 
+/**
+ *  An online service (job S2): `service` is its name, `via` the service
+ *  that led to it ("MusicBrainz via AcoustID"). Nothing here gives one.
+ */
+{ kind: "online"; service: string; via: string | null };
+
+/**  One suggested value with every source that gave it, strongest first. */
+export type IdentifySuggestion = {
+	value: string,
+	sources: IdentifySource[],
+};
+
+/**  What identification suggests for one Library track. */
+export type IdentifySuggestions = {
+	/**  The sent fields, in [`IdentifyField::SENT`] order. */
+	fields: IdentifyFieldSuggestions[],
+	catalogueNumber: IdentifyFieldSuggestions,
+};
 
 /**  What the sidebar badge counts: items still `new` whose file is present. */
 export type InboxCount = {
