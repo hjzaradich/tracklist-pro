@@ -225,7 +225,10 @@ export function crateBackend(options: {
         return "camelot";
       case "next_for":
       case "next_settings":
-        // "What's next" in the Details panel: nothing to suggest.
+      case "identify_suggestions":
+      case "identify_lookup_status":
+      case "online_services_status":
+        // "What's next" and "Look up" in the Details panel: nothing to suggest.
         return quietAnswer(cmd);
       case "table_columns":
         return null;

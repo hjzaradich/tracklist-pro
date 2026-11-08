@@ -90,6 +90,8 @@ const ANSWERS: Record<string, unknown> = {
     discogs: { on: false, tokenSaved: false, storeAvailable: true },
     coverArt: false,
   },
+  identify_suggestions: { fields: [], catalogueNumber: { field: "CatalogueNumber", current: null, suggestions: [] } },
+  identify_lookup_status: [],
   audio_model_status: { enabled: false, fingerprinted: 0, total: 0, failed: 0, running: false },
 };
 

@@ -44,7 +44,7 @@ beforeEach(() => {
     }
     if (cmd === "track_tag_sources") return { inRekordbox: false, fields: [], confirmedEntry: null };
     if (cmd === "list_crates" || cmd === "crates_of_track" || cmd === "list_tags" || cmd === "tags_of_track") return [];
-    if (cmd === "key_notation" || cmd === "next_for" || cmd === "next_settings") return quietAnswer(cmd);
+    if (["key_notation", "next_for", "next_settings", "identify_suggestions", "identify_lookup_status", "online_services_status"].includes(cmd)) return quietAnswer(cmd);
     if (cmd === "next_undo_operation") return { operation: undo, refusal: null };
     if (cmd === "set_energy") {
       const { recordings, energy } = args as { recordings: number[]; energy: number };

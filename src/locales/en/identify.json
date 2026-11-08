@@ -3,5 +3,81 @@
     "fieldUnknown": "That detail can't be set from a look-up",
     "valueEmpty": "Pick a value to use",
     "notSendable": "rekordbox can't take that value"
+  },
+  "lookUp": {
+    "title": "Look up",
+    "action": "Look up",
+    "again": "Look up again",
+    "selected_one": "Look up {{count}} track",
+    "selected_other": "Look up {{count}} tracks",
+    "palette": "Look up the selected tracks",
+    "off": "Every online service is off. Switch one on in Settings, Online services, to look up tracks. Suggestions from its own files still show.",
+    "loading": "Looking for suggestions...",
+    "nothing": "Nothing to suggest for this track: its files' tags and names, and the online look-ups, have nothing different from what it has.",
+    "status": {
+      "never": "Not looked up online yet",
+      "queued": "Waiting to be looked up...",
+      "running": "Looking this track up...",
+      "found_one": "Found {{count}} detail {{when}}",
+      "found_other": "Found {{count}} details {{when}}",
+      "foundFrom_one": "Found {{count}} detail from {{source}} {{when}}",
+      "foundFrom_other": "Found {{count}} details from {{source}} {{when}}",
+      "nothing": "Nothing found {{when}}",
+      "nothingWhy": "Nothing found {{when}}: {{reason}}",
+      "failed": "The look-up failed {{when}}",
+      "failedWhy": "The look-up failed {{when}}: {{reason}}",
+      "skipped": "The look-up was skipped",
+      "skippedWhy": "The look-up was skipped: {{reason}}"
+    },
+    "later": "A later try {{when}} didn't work ({{reason}}). The answer above is kept.",
+    "reason": {
+      "services_off": "every online service is off",
+      "acoustid_off": "AcoustID is off: switch it on in Settings, Online services",
+      "musicbrainz_off": "MusicBrainz is off: switch it on in Settings, Online services",
+      "key_missing": "this version of the app has no AcoustID key yet (see Settings, Online services)",
+      "no_fingerprint": "the track has no fingerprint yet",
+      "no_match": "the services knew no recording for it",
+      "no_details": "MusicBrainz had nothing usable for it",
+      "offline": "the internet couldn't be reached",
+      "busy": "a service was busy",
+      "refused": "a service refused the request",
+      "bad_reply": "a service sent something unexpected",
+      "failed": "something went wrong",
+      "other": "reason: {{code}}"
+    },
+    "asked": {
+      "queued_one": "Looking up {{count}} track in the background",
+      "queued_other": "Looking up {{count}} tracks in the background",
+      "someLeftOut": "Looking up {{count}} in the background; {{left}} left out (not in the Library, or not loaded in the list yet)",
+      "none": "None of those has a file in the Library to look up"
+    },
+    "field": {
+      "Name": "Title",
+      "Artist": "Artist",
+      "Mix": "Version",
+      "Remixer": "Remixer",
+      "Label": "Label",
+      "Year": "Year",
+      "Album": "Album",
+      "CatalogueNumber": "Catalogue number"
+    },
+    "current": "Now: {{value}}",
+    "currentNone": "Now: nothing",
+    "source": {
+      "tags": "from the file's tags",
+      "fileName": "from the file name",
+      "sibling": "from another file of this track",
+      "online": "{{service}}",
+      "onlineVia": "{{service}} via {{via}}",
+      "other": "from {{kind}}"
+    },
+    "sourceSeparator": ", ",
+    "use": "Use",
+    "useValue": "Use {{value}} as the {{field}}",
+    "useAll": "Use all",
+    "used_one": "Used {{count}} suggestion",
+    "used_other": "Used {{count}} suggestions",
+    "usedNothing": "Nothing changed: the track already has that",
+    "catalogueNote": "The app keeps the catalogue number. It isn't sent to rekordbox."
   }
 }
