@@ -625,7 +625,7 @@ fn at_most_three_genres_are_named_and_only_from_thirty_percent() {
         .collect();
     let model = subset::model_id();
     let chances = [
-        ("Ninety five", 0.95),
+        ("Ninety five", 0.95_f64),
         ("Eighty", 0.80),
         ("Sixty", 0.60),
         ("Forty", 0.40),
@@ -645,7 +645,7 @@ fn at_most_three_genres_are_named_and_only_from_thirty_percent() {
                     "INSERT INTO genre (name, name_key) VALUES (?1, lower(?1))",
                     [name],
                 )?;
-                let bias = (p / (1.0 - p) as f64).ln();
+                let bias = (p / (1.0 - p)).ln();
                 conn.execute(
                     "INSERT INTO genre_model_node (genre_id, weights, bias, trained_on, model_id)
                      VALUES (last_insert_rowid(), zeroblob(768), ?1, 10, ?2)",
