@@ -9,6 +9,7 @@
     "group": "Finding duplicates",
     "analyze": "Estimating BPM and key",
     "embed": "Running audio model",
+    "genre_model": "Learning your genres",
     "convert": "Converting files",
     "export": "Exporting",
     "read_rekordbox": "Reading rekordbox collection",

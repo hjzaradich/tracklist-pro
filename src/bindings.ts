@@ -39,6 +39,11 @@ export const commands = {
 	 */
 	audioModelGuesses: (recordingId: number) => typedError<Guesses, IpcError>(__TAURI_INVOKE("audio_model_guesses", { recordingId })),
 	/**
+	 *  The genres of yours the audio model hears in a track, from the model it
+	 *  learned from your own tracks. Reads only; never loads the audio model.
+	 */
+	audioModelYourGenres: (recordingId: number) => typedError<YourGenre[], IpcError>(__TAURI_INVOKE("audio_model_your_genres", { recordingId })),
+	/**
 	 *  The Library tracks that sound most like a track, by the audio model's
 	 *  fingerprints. Reads only; never loads the model.
 	 */
@@ -2201,6 +2206,11 @@ export type JobKind =
 "analyze" | 
 /**  Run the audio model (3.8). */
 "embed" | 
+/**
+ *  Learn the user's own genre model from the audio model's results
+ *  (3.8).
+ */
+"genre_model" | 
 /**  Make a Library copy in another format (2.6). */
 "convert" | 
 /**  Write an export, e.g. the rekordbox XML (1.9). */
@@ -4706,6 +4716,16 @@ export type XmlSource = {
 	newerExport: ExportFile | null,
 	/**  rekordbox's default export folder (Documents), if Windows has one. */
 	exportFolder: string | null,
+};
+
+/**  One of your genres the model hears in a track. */
+export type YourGenre = {
+	/**  The genre node (`genre.id`). */
+	node: number,
+	/**  Its name in your genre tree. */
+	name: string,
+	/**  0 to 100. */
+	percent: number,
 };
 
 /* Tauri Specta runtime */

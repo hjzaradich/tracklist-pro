@@ -161,7 +161,9 @@ pub fn after_quality<H: JobHandler>(qualifier: H) -> Chained<H> {
 pub fn after_index<H: JobHandler>(indexer: H) -> Chained<H> {
     Chained {
         inner: indexer,
-        next: Next::Nothing,
+        // The index writes each track's canonical genre node, which the
+        // user's genre model learns from (3.8).
+        next: Next::LearnGenres,
         priority: Priority::BACKGROUND,
         reach: None,
     }
@@ -196,8 +198,21 @@ pub fn after_analyze<H: JobHandler>(analyzer: H) -> Chained<H> {
 pub fn after_embed<H: JobHandler>(embedder: H) -> Chained<H> {
     Chained {
         inner: embedder,
-        next: Next::Nothing,
+        // New fingerprints are new things to learn the user's genres from.
+        next: Next::LearnGenres,
         priority: crate::audio_model::PRIORITY,
+        reach: None,
+    }
+}
+
+/// The genre model job's handler (the user's own genres, ROADMAP 3.8), run
+/// once more if something asked for it meanwhile. It is queued again at its
+/// own priority, just under the embed job's.
+pub fn after_genre_model<H: JobHandler>(learner: H) -> Chained<H> {
+    Chained {
+        inner: learner,
+        next: Next::Nothing,
+        priority: crate::audio_model::genre_model::PRIORITY,
         reach: None,
     }
 }
@@ -287,6 +302,10 @@ enum Next {
     /// The quality verdicts are in: a file that turned out truncated (or
     /// no longer is) is decided again.
     DecideAfterQuality,
+    /// The fingerprints or the genre nodes changed: the user's genre model
+    /// is learned again if what it learns from is not what it learned from
+    /// (only while the audio model is on).
+    LearnGenres,
     /// Nothing follows.
     Nothing,
 }
@@ -440,6 +459,7 @@ fn queue_next(job: &JobContext, next: Next, reach: Option<&Reach>) -> Result<(),
         // has work: nothing is asked for until the one that finishes.
         Next::Decide => crate::grouping::request_decide(writer, enqueue)?,
         Next::DecideAfterQuality => crate::grouping::request_decide_after_quality(writer, enqueue)?,
+        Next::LearnGenres => crate::audio_model::genre_model::request(writer, enqueue)?,
         Next::Nothing => {}
     }
     // Whatever the stage changed, the search index follows (1cA-6).

@@ -4,8 +4,9 @@
 //! - **Off by default** ([`Feature::AudioModel`]). While it is off nothing is
 //!   queued, nothing runs and the model is never loaded.
 //! - **Turning it on** queues the embed job if any track is due.
-//! - **Turning it off** cancels the embed jobs queued or running. Every
-//!   result stored is kept: the next job hides them in the screen.
+//! - **Turning it off** cancels the embed jobs and the genre model jobs
+//!   queued or running. Every result stored, and the genre model learned, is
+//!   kept: the screen hides them.
 //! - **Asked for** at startup (`jobs::startup`), when the switch is turned
 //!   on, and when the analyze job ends (new files have been hashed and
 //!   measured by then); each asks [`request`], which queues only if a track
@@ -76,9 +77,12 @@ pub fn switch(writer: &Writer, jobs: &JobQueue, on: bool) -> Result<(), DbError>
         return request(writer, None, |job| jobs.enqueue(job));
     }
     let active: Vec<i64> = writer.call(|c| {
-        c.prepare("SELECT id FROM job WHERE kind = 'embed' AND status IN ('queued', 'running')")?
-            .query_map([], |r| r.get(0))?
-            .collect()
+        c.prepare(
+            "SELECT id FROM job WHERE kind IN ('embed', 'genre_model')
+             AND status IN ('queued', 'running')",
+        )?
+        .query_map([], |r| r.get(0))?
+        .collect()
     })?;
     for id in active {
         jobs.cancel(JobId(id))?;

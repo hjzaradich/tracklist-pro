@@ -142,6 +142,23 @@ fn a_library_with_nothing_due_queues_nothing() {
 }
 
 #[test]
+fn the_genre_model_is_asked_for_at_startup_only_while_the_audio_model_is_on() {
+    use crate::settings::{write_feature_enabled, Feature};
+    let (_dir, volume, _db, writer) = scanned();
+    // Off (the default): nothing is asked, however stale the model is.
+    let (failed, queued) = ask(&writer, &volume);
+    assert_eq!((failed, kinds(&queued)), (0, Vec::<&str>::new()));
+    writer
+        .call(|c| write_feature_enabled(c, Feature::AudioModel, true))
+        .unwrap();
+    let (failed, queued) = ask(&writer, &volume);
+    assert_eq!((failed, kinds(&queued)), (0, vec!["genre_model"]));
+    // Asking again queues no second one.
+    let (_, queued) = ask(&writer, &volume);
+    assert_eq!(kinds(&queued), vec!["genre_model"]);
+}
+
+#[test]
 fn an_app_that_died_between_hashing_and_fingerprinting_asks_for_the_fingerprint_stage_at_the_next_start(
 ) {
     let (_dir, volume, _db, writer) = scanned();
@@ -518,7 +535,7 @@ fn the_startup_checks_finish_while_the_database_writer_is_busy_with_something_el
         }
     });
     assert_eq!(asked.failed, 0);
-    assert_eq!(asked.took.len(), 12, "every stage was asked");
+    assert_eq!(asked.took.len(), 13, "every stage was asked");
     release.send(()).unwrap();
     holder.join().unwrap().unwrap();
 }

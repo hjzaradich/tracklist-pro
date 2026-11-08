@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+mod genre_model;
 #[cfg(windows)]
 mod job;
 mod panel;

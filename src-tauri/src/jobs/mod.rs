@@ -128,6 +128,10 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
             JobKind::Embed,
             crate::scan::chain::after_embed(crate::audio_model::embedder(app)),
         )
+        .handler(
+            JobKind::GenreModel,
+            crate::scan::chain::after_genre_model(crate::audio_model::genre_model::GenreLearner),
+        )
         .start()
 }
 

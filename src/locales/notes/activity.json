@@ -44,6 +44,10 @@
     "where": "Top bar, Activity status and list rows, while the audio model runs.",
     "approved": "Running audio model"
   },
+  "task.genre_model": {
+    "purpose": "Names the job that learns your own genre model from your tracks.",
+    "where": "Top bar, Activity status and list rows, while the audio model learns your genres."
+  },
   "task.convert": {
     "purpose": "Names the file-conversion job.",
     "where": "Top bar, Activity status and list rows, while files are converted.",

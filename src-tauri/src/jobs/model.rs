@@ -40,6 +40,9 @@ pub enum JobKind {
     Analyze,
     /// Run the audio model (3.8).
     Embed,
+    /// Learn the user's own genre model from the audio model's results
+    /// (3.8).
+    GenreModel,
     /// Make a Library copy in another format (2.6).
     Convert,
     /// Write an export, e.g. the rekordbox XML (1.9).
@@ -65,7 +68,7 @@ pub enum JobKind {
 
 impl JobKind {
     /// Every kind, in the order above.
-    pub const ALL: [JobKind; 16] = [
+    pub const ALL: [JobKind; 17] = [
         JobKind::Scan,
         JobKind::Read,
         JobKind::Hash,
@@ -73,6 +76,7 @@ impl JobKind {
         JobKind::Group,
         JobKind::Analyze,
         JobKind::Embed,
+        JobKind::GenreModel,
         JobKind::Convert,
         JobKind::Export,
         JobKind::ReadRekordbox,
@@ -94,6 +98,7 @@ impl JobKind {
             JobKind::Group => "group",
             JobKind::Analyze => "analyze",
             JobKind::Embed => "embed",
+            JobKind::GenreModel => "genre_model",
             JobKind::Convert => "convert",
             JobKind::Export => "export",
             JobKind::ReadRekordbox => "read_rekordbox",
@@ -264,6 +269,7 @@ mod tests {
                 "group",
                 "analyze",
                 "embed",
+                "genre_model",
                 "convert",
                 "export",
                 "read_rekordbox",
