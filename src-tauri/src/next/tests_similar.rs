@@ -399,15 +399,17 @@ fn library_track(lib: &Lib, name: &str, bpm: f64, fingerprint: Option<&[f32]>) -
     if let Some(head) = fingerprint {
         let mut fingerprint = vec![0.0; EMBEDDING_LEN];
         fingerprint[..head.len()].copy_from_slice(head);
-        call(lib, move |c| {
-            let due = ledger::due(c, file)?.expect("the file is due");
-            let outcome = Outcome::Heard {
-                fingerprint,
-                scores: vec![-10.0; SUBSET_LEN],
-            };
-            assert!(ledger::record(c, &due, &outcome)?);
-            Ok(())
-        });
+        lib.writer
+            .call(move |c| {
+                let due = ledger::due(c, file)?.expect("the file is due");
+                let outcome = Outcome::Heard {
+                    fingerprint,
+                    scores: vec![-10.0; SUBSET_LEN],
+                };
+                assert!(ledger::record(c, &due, &outcome)?);
+                Ok(())
+            })
+            .unwrap();
     }
     recording
 }
