@@ -597,10 +597,11 @@ Each feature is tagged with its sub-phase.
 - **Complexity:** L. **Reuse:** `enrich.rs`, the integration clients, credentials handling.
 - **Owner decisions (2026-11-08, Run 6A):**
   - **AcoustID:** the owner registers one application key for the app, and it ships in the app's public code, as other open-source taggers do. AcoustID is free for non-commercial use (5.7): recheck if the project ever takes money. Until the key is in, AcoustID shows as unavailable and everything else works.
-  - **Discogs:** each user's own token is kept in Windows' password store (Credential Manager, through the `keyring` crate), never in the app's database, bundles, logs or diagnostics.
+  - **Discogs:** each user's own token is kept in Windows' password store (Credential Manager, through the `keyring-core` crate and its native Windows and macOS stores; Linux has none), never in the app's database, bundles, logs or diagnostics.
   - **Where accepted values go:** they become the app's own values (1.10), one Undo per action, and reach rekordbox on the next send. Audio files are never written. Artwork and the catalogue number have no place in rekordbox: the look-up shows them, the app keeps the catalogue number, and both wait for file writing (2.6).
   - **When:** on request ("Look up" on one track or a selection), and automatically for new Inbox files while the services are switched on. Each service is off until the user switches it on.
   - **Not in this run:** the Spotify import (strictest terms, 5.7); paste and CSV wishlists already cover it.
+- **Built (6A, PR 227):** the password store for the Discogs token (saved only after Discogs accepts it; never shown again, never in the database, bundles, logs or diagnostics); the AcoustID service, pinned to api.acoustid.org at 3 requests a second, sending the first 120 seconds of the stored fingerprint and the track's length, and making no request while the app's key is missing; on/off for MusicBrainz, AcoustID, Discogs and Cover Art, each off until switched on.
 
 #### 2.3 Wishlists
 - **Inputs, most reliable first:** a pasted tracklist → CSV (e.g. Exportify) → the Spotify API with your own client ID (opt-in). SoundCloud and Apple are CSV or paste only.

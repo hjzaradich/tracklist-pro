@@ -110,12 +110,14 @@ In [TASKS-archive.md](TASKS-archive.md).
 
 ### Run 6A: Identification and tag cleanup (2.2) (owner 2026-11-08: "Go for it", budget about 20 weekly points, started at 46%)
 - **2.2** (owner decisions 2026-11-08 in ROADMAP 2.2). Order: map, then K1 and S1 side by side, then S2, then U1. Migrations: S1 0057, S2 0058 if needed.
-  - [ ] M code map (Haiku, writes reviews/6A-map.md): the musicmanager `enrich.rs` port source, app values and the 5B set path, stored fingerprints, `net` services and the gate, Settings "Online services", the Inbox arrival hook and rows, the track details panel, the job queue.
-  - [ ] K1 keys and switches: Windows password store for the Discogs token (save, check, remove; never in the database, bundles, logs or diagnostics); the AcoustID service pinned to its host, its key a constant the owner fills in; Settings switches for MusicBrainz, AcoustID, Discogs and Cover Art, each off, each saying what it sends. Fable review.
+  - ✅ M code map (reviews/6A-map.md).
+  - ✅ K1 (PR 227; Fable review 6/6 mutations) keys and switches, backend: Windows password store for the Discogs token (save, check, remove; never in the database, bundles, logs or diagnostics); the AcoustID service pinned to its host, its key a constant the owner fills in; switch commands for MusicBrainz, AcoustID, Discogs and Cover Art.
+  - [ ] K2 (PR 229) the Settings rows: each off, each saying what it sends; the Discogs token field.
   - [ ] S1 suggestions, offline: per-field suggestions (title, artist, version, remixer, label, year, album, catalogue number, artwork) from tags, the filename and version parser and sibling files, each naming its source; the catalogue number kept by the app; migration 0057.
   - [ ] S2 online look-up job: AcoustID from the stored fingerprint, then MusicBrainz; MusicBrainz and Discogs text search; the front cover from Cover Art. Through the gate, at each service's speed limit, cancellable; one bad answer never stops a batch. On request, and automatically for new Inbox files while switched on. Fable review.
   - [ ] U1 the Look up panel: in the track details and on Inbox rows, current value beside each suggestion with its source; "Use" per field and "Use all", one Undo each, sent to rekordbox like any edit; artwork and catalogue number shown only. Fable review.
 - **Owner step:** register the AcoustID application key (steps given when K1 is merged); the owner puts it in the code, Claude never handles keys.
+- **Follow-ups:** re-check the Discogs switch right before the token is stored (tiny window after the check); the test-only mock credential store is chosen by `cfg!(test)`, which doesn't cover tests/ integration tests (none use it yet); tags expose no catalogue number (only file names like "[ABC123]").
 
 ### Stage 1cE: Go public 👤
 - **Owner decision 2026-11-05: the owner's review work moves later.** P1 (wording and formatting), installer 0.1.8, the 1c checkpoint (1cE-1) and the owner's remaining 1cD-2 checks wait until the owner takes a deep dive; Phase 2 goes ahead meanwhile with plain, barebones wording and interface (strings stay proposed; the Editor's rule stands: warnings, data loss and rekordbox steps go to the owner first).
