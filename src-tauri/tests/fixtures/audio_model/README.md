@@ -63,7 +63,7 @@ CED's own `feature_extraction_ced.py` (torchaudio): 16 kHz mono in; STFT with a 
 
 ## Whole-track path (signal B)
 
-Resample the 44.1 kHz signal to 16 kHz (the fixture used soxr "HQ", which is librosa 1.0.0's default; exactly 640 000 samples), so `duration = 40 s`. Three 10 s windows at 25, 50 and 75 %: `start = clamp(p * duration - 5, 0, duration - 10)` seconds, sample offset `round(start * 16000)` (round half away from zero; the starts here are 5, 15 and 25 s, exact multiples of 16000, so no tie arises, and real tracks should use the same rule), 160 000 samples each (zero-padded if the track is shorter). Each window goes through the front end and the model; the fingerprint is the mean of the 3 `emb` outputs and the label scores are the mean of the 3 `logits` outputs.
+Resample the 44.1 kHz signal to 16 kHz (the fixture used soxr "HQ", which is librosa 1.0.0's default; exactly 640 000 samples), so `duration = 40 s`. Three 10 s windows at 25, 50 and 75 %: `start = clamp(p * duration - 5, 0, duration - 10)` seconds, sample offset `round(start * 16000)` (ties to even, as Python's `round` in golden.py; the starts here are 5, 15 and 25 s, exact multiples of 16000, so no tie arises; Rust's `f64::round_ties_even` matches), 160 000 samples each (zero-padded if the track is shorter). Each window goes through the front end and the model; the fingerprint is the mean of the 3 `emb` outputs and the label scores are the mean of the 3 `logits` outputs.
 
 ## Tolerance guidance
 
