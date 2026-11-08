@@ -15,7 +15,7 @@ import {
   type TableSource,
 } from "../bindings";
 import { type PaletteAction, useRegisterActions } from "../palette/registry";
-import { useReportSelectedIds, useReportSelection } from "../shell/selectedTrack";
+import { useReportSelectedIds, useReportSelection, useSelectedTrack } from "../shell/selectedTrack";
 import { useWhenUndone } from "../shell/undoneStore";
 import { ColumnEditor } from "./ColumnEditor";
 import { FilterChips } from "./FilterChips";
@@ -177,6 +177,27 @@ export function TrackTableView({
   useEffect(() => {
     if (viewRef) viewRef.current = query;
   }, [viewRef, query]);
+  // How a selection of tracks becomes Library tracks (the Look up action): by the rows loaded now.
+  const latestRows = useRef(rows);
+  useEffect(() => {
+    latestRows.current = rows;
+  });
+  const setLibraryIdsOf = useSelectedTrack((state) => state.setLibraryIdsOf);
+  useEffect(() => {
+    setLibraryIdsOf((recordingIds) => {
+      const wanted = new Set(recordingIds);
+      const found: number[] = [];
+      const { total = 0, getRow } = latestRows.current;
+      for (let index = 0; index < total && found.length < wanted.size; index++) {
+        const row = getRow(index);
+        if (row !== undefined && row.libraryTrackId !== null && wanted.has(row.recordingId) && !found.includes(row.libraryTrackId)) {
+          found.push(row.libraryTrackId);
+        }
+      }
+      return found;
+    });
+    return () => setLibraryIdsOf(null);
+  }, [setLibraryIdsOf]);
   // Sorted by fit, no heading shows a sort.
   const shownSort = fitTarget !== null ? null : (sort ?? DEFAULT_SORT[screen]);
   const narrowedBy = JSON.stringify([query.search, query.filters]);

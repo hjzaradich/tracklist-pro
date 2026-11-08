@@ -10,5 +10,261 @@
   "error.notSendable": {
     "purpose": "Error when a value given to Use has a character rekordbox can't take, or a year that isn't a number.",
     "where": "Look up panel, after Use."
+  },
+  "lookUp.title": {
+    "purpose": "Heading of the panel with identification suggestions for the selected track.",
+    "where": "Track details, after the Audio model panel."
+  },
+  "lookUp.action": {
+    "purpose": "Button that asks the online services that are on about this track, when it has not been looked up.",
+    "where": "Look up panel, in Track details."
+  },
+  "lookUp.again": {
+    "purpose": "The same button once the track has been looked up before.",
+    "where": "Look up panel, in Track details."
+  },
+  "lookUp.selected_one": {
+    "purpose": "Button that looks up all the selected tracks (one-track form).",
+    "where": "Look up panel, in Track details. Shown when several tracks are selected."
+  },
+  "lookUp.selected_other": {
+    "purpose": "Button that looks up all the selected tracks.",
+    "where": "Look up panel, in Track details. Shown when several tracks are selected."
+  },
+  "lookUp.palette": {
+    "purpose": "Command palette entry that looks up the selected tracks online.",
+    "where": "Command palette, while a track is selected and an online service is on."
+  },
+  "lookUp.off": {
+    "purpose": "Says why Look up is disabled, and that offline suggestions still show.",
+    "where": "Look up panel, in Track details. Under the Look up button, when every online service is off."
+  },
+  "lookUp.loading": {
+    "purpose": "Shown while the suggestions are being fetched.",
+    "where": "Look up panel, in Track details."
+  },
+  "lookUp.nothing": {
+    "purpose": "Says there is no suggestion at all for the track.",
+    "where": "Look up panel, in Track details."
+  },
+  "lookUp.status.never": {
+    "purpose": "Status line for a track that has never been looked up.",
+    "where": "Look up panel, in Track details. Top status line."
+  },
+  "lookUp.status.queued": {
+    "purpose": "Status line while the look-up is queued.",
+    "where": "Look up panel, in Track details. Top status line."
+  },
+  "lookUp.status.running": {
+    "purpose": "Status line while the look-up runs.",
+    "where": "Look up panel, in Track details. Top status line."
+  },
+  "lookUp.status.found_one": {
+    "purpose": "Status line after a look-up that found one detail, when no online source is known.",
+    "where": "Look up panel, in Track details. Top status line."
+  },
+  "lookUp.status.found_other": {
+    "purpose": "Status line after a look-up that found details, when no online source is known.",
+    "where": "Look up panel, in Track details. Top status line."
+  },
+  "lookUp.status.foundFrom_one": {
+    "purpose": "Status line after a look-up that found one detail; names the source and when.",
+    "where": "Look up panel, in Track details. Top status line."
+  },
+  "lookUp.status.foundFrom_other": {
+    "purpose": "Status line after a look-up that found details; names the source and when.",
+    "where": "Look up panel, in Track details. Top status line."
+  },
+  "lookUp.status.nothing": {
+    "purpose": "Status line after a look-up that found nothing, with no reason known.",
+    "where": "Look up panel, in Track details. Top status line."
+  },
+  "lookUp.status.nothingWhy": {
+    "purpose": "Status line after a look-up that found nothing, with the reason.",
+    "where": "Look up panel, in Track details. Top status line."
+  },
+  "lookUp.status.failed": {
+    "purpose": "Status line after a failed look-up, with no reason known.",
+    "where": "Look up panel, in Track details. Top status line."
+  },
+  "lookUp.status.failedWhy": {
+    "purpose": "Status line after a failed look-up, with the reason.",
+    "where": "Look up panel, in Track details. Top status line."
+  },
+  "lookUp.status.skipped": {
+    "purpose": "Status line when a look-up was skipped, with no reason known.",
+    "where": "Look up panel, in Track details. Top status line."
+  },
+  "lookUp.status.skippedWhy": {
+    "purpose": "Status line when a look-up was skipped, with the reason.",
+    "where": "Look up panel, in Track details. Top status line."
+  },
+  "lookUp.later": {
+    "purpose": "Says a newer look-up failed but the earlier good answer is kept.",
+    "where": "Look up panel, in Track details. Under the status line."
+  },
+  "lookUp.reason.services_off": {
+    "purpose": "Reason a look-up was skipped: all services off.",
+    "where": "Look up panel, in Track details. In the status line."
+  },
+  "lookUp.reason.acoustid_off": {
+    "purpose": "Reason a look-up was skipped: AcoustID is not switched on. Names the Settings panel.",
+    "where": "Look up panel, in Track details. In the status line."
+  },
+  "lookUp.reason.musicbrainz_off": {
+    "purpose": "Reason a look-up was skipped: MusicBrainz is not switched on. Names the Settings panel.",
+    "where": "Look up panel, in Track details. In the status line."
+  },
+  "lookUp.reason.key_missing": {
+    "purpose": "Reason a look-up was skipped: the app's AcoustID key is not filled in. Names the Settings panel.",
+    "where": "Look up panel, in Track details. In the status line."
+  },
+  "lookUp.reason.no_fingerprint": {
+    "purpose": "Reason: the audio has not been fingerprinted yet.",
+    "where": "Look up panel, in Track details. In the status line."
+  },
+  "lookUp.reason.no_match": {
+    "purpose": "Reason: AcoustID found no sure match.",
+    "where": "Look up panel, in Track details. In the status line."
+  },
+  "lookUp.reason.no_details": {
+    "purpose": "Reason: the recordings found had no usable details.",
+    "where": "Look up panel, in Track details. In the status line."
+  },
+  "lookUp.reason.offline": {
+    "purpose": "Reason: no internet connection.",
+    "where": "Look up panel, in Track details. In the status line."
+  },
+  "lookUp.reason.busy": {
+    "purpose": "Reason: a service asked the app to slow down.",
+    "where": "Look up panel, in Track details. In the status line."
+  },
+  "lookUp.reason.refused": {
+    "purpose": "Reason: a service refused.",
+    "where": "Look up panel, in Track details. In the status line."
+  },
+  "lookUp.reason.bad_reply": {
+    "purpose": "Reason: a service's answer could not be read.",
+    "where": "Look up panel, in Track details. In the status line."
+  },
+  "lookUp.reason.failed": {
+    "purpose": "Reason: an unspecified failure.",
+    "where": "Look up panel, in Track details. In the status line."
+  },
+  "lookUp.reason.other": {
+    "purpose": "Reason for a code this version has no words for; shows the code as the app sent it.",
+    "where": "Look up panel, in Track details. In the status line."
+  },
+  "lookUp.asked.queued_one": {
+    "purpose": "Says one track's look-up was started.",
+    "where": "Look up panel, in Track details. Under the buttons."
+  },
+  "lookUp.asked.queued_other": {
+    "purpose": "Says the look-up of several tracks was started.",
+    "where": "Look up panel, in Track details. Under the buttons."
+  },
+  "lookUp.asked.someLeftOut": {
+    "purpose": "Says some selected tracks could not be looked up and why.",
+    "where": "Look up panel, in Track details. Under the buttons."
+  },
+  "lookUp.asked.none": {
+    "purpose": "Says nothing was started because no selected track is a Library track with a file.",
+    "where": "Look up panel, in Track details. Under the buttons."
+  },
+  "lookUp.field.Name": {
+    "purpose": "Name of the title detail.",
+    "where": "Look up panel, in Track details. Row label."
+  },
+  "lookUp.field.Artist": {
+    "purpose": "Name of the artist detail.",
+    "where": "Look up panel, in Track details. Row label."
+  },
+  "lookUp.field.Mix": {
+    "purpose": "Name of the version (mix) detail.",
+    "where": "Look up panel, in Track details. Row label."
+  },
+  "lookUp.field.Remixer": {
+    "purpose": "Name of the remixer detail.",
+    "where": "Look up panel, in Track details. Row label."
+  },
+  "lookUp.field.Label": {
+    "purpose": "Name of the label detail.",
+    "where": "Look up panel, in Track details. Row label."
+  },
+  "lookUp.field.Year": {
+    "purpose": "Name of the year detail.",
+    "where": "Look up panel, in Track details. Row label."
+  },
+  "lookUp.field.Album": {
+    "purpose": "Name of the album detail.",
+    "where": "Look up panel, in Track details. Row label."
+  },
+  "lookUp.field.CatalogueNumber": {
+    "purpose": "Name of the catalogue number detail.",
+    "where": "Look up panel, in Track details. Row label."
+  },
+  "lookUp.current": {
+    "purpose": "The value the track has now, above its suggestions.",
+    "where": "Look up panel, in Track details. Under a row label."
+  },
+  "lookUp.currentNone": {
+    "purpose": "Says the track has no value for the detail now.",
+    "where": "Look up panel, in Track details. Under a row label."
+  },
+  "lookUp.source.tags": {
+    "purpose": "Names the file's tags as a suggestion's source.",
+    "where": "Look up panel, in Track details. Beside a suggestion."
+  },
+  "lookUp.source.fileName": {
+    "purpose": "Names the file name as a suggestion's source.",
+    "where": "Look up panel, in Track details. Beside a suggestion."
+  },
+  "lookUp.source.sibling": {
+    "purpose": "Names another file of the same track as a suggestion's source.",
+    "where": "Look up panel, in Track details. Beside a suggestion."
+  },
+  "lookUp.source.online": {
+    "purpose": "Names an online service as a suggestion's source.",
+    "where": "Look up panel, in Track details. Beside a suggestion."
+  },
+  "lookUp.source.onlineVia": {
+    "purpose": "Names an online service and the service that led to it.",
+    "where": "Look up panel, in Track details. Beside a suggestion."
+  },
+  "lookUp.source.other": {
+    "purpose": "A source this version has no words for; shows its kind as the app sent it.",
+    "where": "Look up panel, in Track details. Beside a suggestion."
+  },
+  "lookUp.sourceSeparator": {
+    "purpose": "Joins several sources of one suggestion.",
+    "where": "Look up panel, in Track details. Beside a suggestion."
+  },
+  "lookUp.use": {
+    "purpose": "Button that sets one suggestion as the track's own value.",
+    "where": "Look up panel, in Track details. Beside a suggestion."
+  },
+  "lookUp.useValue": {
+    "purpose": "Screen-reader name of a Use button.",
+    "where": "Look up panel, in Track details. Beside a suggestion. (not shown)"
+  },
+  "lookUp.useAll": {
+    "purpose": "Button that uses the first suggestion of every row shown, as one step.",
+    "where": "Look up panel, in Track details. Under the rows, when more than one row is shown."
+  },
+  "lookUp.used_one": {
+    "purpose": "Says one suggestion was used.",
+    "where": "Look up panel, in Track details. Under the rows."
+  },
+  "lookUp.used_other": {
+    "purpose": "Says several suggestions were used.",
+    "where": "Look up panel, in Track details. Under the rows."
+  },
+  "lookUp.usedNothing": {
+    "purpose": "Says Use changed nothing.",
+    "where": "Look up panel, in Track details. Under the rows."
+  },
+  "lookUp.catalogueNote": {
+    "purpose": "Says the catalogue number stays in the app.",
+    "where": "Look up panel, in Track details. Under the rows, when a catalogue number is suggested."
   }
 }

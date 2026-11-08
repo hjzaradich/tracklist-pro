@@ -8,6 +8,7 @@ import { EnergyDetails } from "./EnergyDetails";
 import { TrackCrates } from "./TrackCrates";
 import { TrackTags } from "../vocab/TrackTags";
 import { AudioModelPanel } from "../audioModel/AudioModelPanel";
+import { LookUpPanel } from "../identify/LookUpPanel";
 import { WhatsNext } from "../whatsNext/WhatsNext";
 import { useTrackTagSources } from "./useTrackTagSources";
 import styles from "./TrackDetails.module.css";
@@ -144,6 +145,7 @@ export function TrackDetails({ row }: { row: TableRow }) {
       <TrackCrates row={row} />
       <TrackTags row={row} />
       <WhatsNext row={row} />
+      <LookUpPanel key={row.recordingId} row={row} />
       <AudioModelPanel key={row.recordingId} row={row} />
       {entry !== null && (
         <div className={styles.confirmed}>

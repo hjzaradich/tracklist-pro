@@ -48,7 +48,7 @@ beforeEach(() => {
       return answer;
     }
     if (cmd === "list_crates" || cmd === "crates_of_track" || cmd === "list_tags" || cmd === "tags_of_track") return [];
-    if (cmd === "key_notation" || cmd === "next_for" || cmd === "next_settings" || cmd === "audio_model_status") return quietAnswer(cmd);
+    if (cmd === "key_notation" || cmd === "next_for" || cmd === "next_settings" || cmd === "audio_model_status" || cmd === "identify_suggestions" || cmd === "identify_lookup_status" || cmd === "online_services_status") return quietAnswer(cmd);
     if (cmd === "undo_last_operation") return { status: "nothingToUndo" };
     if (cmd === "review_withdraw_relink") {
       withdrawn.push((args as { entryId: number }).entryId);
