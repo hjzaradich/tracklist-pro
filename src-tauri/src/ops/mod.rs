@@ -652,6 +652,9 @@ fn record_around<P, T>(
     let value = write(&mut recorder, prepared)?;
     let operation_id = (recorder.written > 0).then_some(recorder.operation_id);
     if let Some(id) = operation_id {
+        // A track whose own genre the operation changed shows another
+        // genre: the index works it out again (`genre::own`, derived state).
+        crate::genre::own::mark_due(&tx, id)?;
         if let Some(derived) = derived {
             derived(&tx)?;
         }
@@ -1281,6 +1284,9 @@ fn undo_step(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, Op
             conflicts: found.conflicts,
         }),
         None => {
+            // As when it was recorded: a track whose own genre the undo
+            // changed is worked out again by the index (`genre::own`).
+            crate::genre::own::mark_due(&tx, operation.id)?;
             tx.commit()?;
             Ok(UndoOutcome::Undone { operation })
         }

@@ -99,6 +99,7 @@
       "setEnergy_other": "Undo (energy set on {{count, number}} tracks)",
       "clearEnergy_one": "Undo (energy cleared on {{count, number}} track)",
       "clearEnergy_other": "Undo (energy cleared on {{count, number}} tracks)",
+      "setGenre": "Undo (genre set to “{{name}}”)",
       "wishlistCreate": "Undo (wishlist made)",
       "wishlistRename": "Undo (wishlist renamed)",
       "wishlistDelete": "Undo (wishlist deleted)",
@@ -142,6 +143,7 @@
     "source": {
       "rekordbox": "rekordbox",
       "file": "Tag in {{file}}",
+      "yours": "Your edit",
       "blankInRekordbox": "Blank in rekordbox",
       "other_one": "(1 other value)",
       "other_other": "({{count, number}} other values)"

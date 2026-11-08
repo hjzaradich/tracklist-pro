@@ -681,3 +681,34 @@ fn undo_of_an_edit_is_refused_once_the_merge_took_rekordboxs_value_in() {
     assert_eq!(lib.app_rows(), []);
     assert_eq!(lib.operations(), operations, "nothing undone or logged");
 }
+
+// ---- Taking rekordbox's value in and the index (5B B1) --------------------------
+
+#[test]
+fn taking_rekordboxs_genre_in_marks_the_track_due_for_the_index_and_another_field_does_not() {
+    let lib = Lib::new();
+    let id = lib.known(&[("Genre", "House"), ("Rating", "51")]);
+    lib.set(id, "Genre", "Techno").unwrap();
+    lib.set(id, "Rating", "255").unwrap();
+    let due = move |field: &'static str| -> bool {
+        lib.writer
+            .call(move |c| {
+                c.execute("DELETE FROM search_due", [])?;
+                app_values::take_in(c, id, field)?;
+                c.query_row(
+                    "SELECT EXISTS (SELECT 1 FROM search_due
+                                    WHERE recording_id = (SELECT recording_id FROM library_track
+                                                          WHERE id = ?1))",
+                    [id.0],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    };
+    assert!(!due("Rating"), "the genre shown didn't change");
+    assert!(due("Genre"), "the track shows rekordbox's genre now");
+    assert!(
+        !due("Genre"),
+        "nothing was there to take in the second time"
+    );
+}

@@ -105,6 +105,19 @@ describe("the Details panel", () => {
     expect(genre).toHaveTextContent(tx("shell:details.source.file", { file: "tune.mp3" }));
   });
 
+  it("says a genre set with Use is your edit, with rekordbox's value under it", async () => {
+    const user = userEvent.setup();
+    answer = sources([field("genre", { value: "Techno", origin: "yours", file: null }, [rekordbox("House")])]);
+    renderPanel();
+    const genre = await waitFor(() => fieldNamed("genre"));
+    expect(genre).toHaveTextContent("Techno");
+    expect(genre).toHaveTextContent(tx("shell:details.source.yours"));
+    await user.click(screen.getByRole("checkbox", { name: tx("shell:details.moreDetails") }));
+    const other = within(genre).getByRole("listitem");
+    expect(other).toHaveTextContent("House");
+    expect(other).toHaveTextContent(tx("shell:details.source.rekordbox"));
+  });
+
   it("says rekordbox has no value for a field it leaves blank", async () => {
     answer = sources([field("genre", null, [inFile("House", "tune.mp3")])]);
     renderPanel();

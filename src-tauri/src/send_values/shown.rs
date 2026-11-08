@@ -319,13 +319,16 @@ impl ShownFields {
 }
 
 /// [`shown`] with the other fields the search index holds, for each Library
-/// track in `ids`. The title and artist are exactly [`shown`]'s.
+/// track in `ids`. The title and artist are exactly [`shown`]'s. The genre
+/// is the track's own when the user set one (`genre::own`, the app's own
+/// value of `Genre`; blank means none), else the field's as above.
 pub fn shown_fields(
     conn: &Connection,
     volumes: &impl Volumes,
     ids: &[LibraryTrackId],
 ) -> rusqlite::Result<HashMap<LibraryTrackId, ShownFields>> {
     let loaded = load(conn, volumes, ids, Scope::Search, &HashMap::new())?;
+    let mut own_genres = crate::genre::own::own_genres(conn, ids)?;
     Ok(ids
         .iter()
         .filter_map(|&id| {
@@ -336,7 +339,11 @@ pub fn shown_fields(
                 (picked[0].as_deref(), picked[1].as_deref()),
                 loaded.file_name_of(row),
             );
-            Some((id, ShownFields::new(shown, row.title.as_deref(), &picked)))
+            let mut fields = ShownFields::new(shown, row.title.as_deref(), &picked);
+            if let Some(own) = own_genres.remove(&id) {
+                fields.genre = own;
+            }
+            Some((id, fields))
         })
         .collect())
 }

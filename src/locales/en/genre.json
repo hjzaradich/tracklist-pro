@@ -63,6 +63,7 @@
     "nameTaken": "A genre with that name already exists (“{{name}}”)",
     "moveIntoItself": "A genre can't go inside itself or one of its own genres",
     "aliasTaken": "That spelling already goes to “{{name}}”",
-    "textTooLong": "That is too long. Keep it under 200 characters."
+    "textTooLong": "That is too long. Keep it under 200 characters.",
+    "notSendable": "That name has a character rekordbox can't take"
   }
 }

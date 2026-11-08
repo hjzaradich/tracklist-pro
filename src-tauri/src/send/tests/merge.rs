@@ -681,3 +681,123 @@ fn the_preflight_counts_the_stars_this_send_changes_only_while_energy_is_sent_as
     w.give_energy(velo, 8);
     assert_eq!(w.prepare().unwrap().stars_changed, Some(0));
 }
+
+// ---- "Use" on a genre guess (ROADMAP 3.8; 5B B1) ---------------------------------
+
+impl World {
+    /// The user presses "Use" on a genre guess named `name`
+    /// (`genre::own`).
+    fn use_genre(&self, track: LibraryTrackId, name: &str) {
+        let name = name.to_owned();
+        self.writer
+            .call(move |c| Ok(crate::genre::own::set_genre_on(c, &Plugged, track, &name)))
+            .unwrap()
+            .unwrap();
+    }
+
+    /// The genre the track's row holds once the index has run.
+    fn indexed_genre(&self, track: LibraryTrackId) -> Option<String> {
+        self.writer
+            .call(|c| crate::search::settle(c, &Plugged, 50))
+            .unwrap();
+        self.query(
+            "SELECT tr.genre FROM track_row tr
+             JOIN library_track lt ON lt.recording_id = tr.recording_id
+             WHERE lt.id = ?1",
+            (track.0,),
+            |r| r.get(0),
+        )
+        .pop()
+        .flatten()
+    }
+}
+
+#[test]
+fn the_next_send_carries_the_genre_set_with_use_for_a_track_rekordbox_has() {
+    let (w, velo) = velo_sent_once();
+    w.use_genre(velo, "Techno");
+
+    let preflight = w.send();
+
+    assert_eq!(preflight.conflicts_waiting, 0);
+    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("Techno"));
+    assert_eq!(w.base(velo, "Genre").as_deref(), Some("Techno"));
+    assert_eq!(w.own(velo, "Genre").as_deref(), Some("Techno"));
+}
+
+#[test]
+fn the_next_send_carries_the_genre_set_with_use_for_a_track_rekordbox_does_not_have() {
+    let w = World::new();
+    let (track, _) = w.library_track("new.mp3", "New", true);
+    w.crate_of("Peak", &[track]);
+    w.save_export(&[]);
+    w.use_genre(track, "Ambient");
+
+    let preflight = w.send();
+
+    assert_eq!(preflight.new_tracks, 1);
+    assert_eq!(w.sent_value("new.mp3", "Genre").as_deref(), Some("Ambient"));
+}
+
+#[test]
+fn a_genre_set_with_use_and_changed_in_rekordbox_too_is_a_conflict_as_for_any_field() {
+    let (w, velo) = velo_sent_once();
+    w.use_genre(velo, "Techno");
+    w.rekordbox_now(&[("Genre", "Disco")]);
+
+    let preflight = w.send();
+
+    assert_eq!(preflight.conflicts_waiting, 1);
+    let open = w.open_conflicts();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].field, "Genre");
+    assert_eq!(
+        sides_of(&open[0]),
+        (Some("Techno"), Some("Disco"), Some("House"))
+    );
+    // Meanwhile rekordbox's value goes out, as for any field in dispute.
+    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("Disco"));
+}
+
+#[test]
+fn rekordboxs_later_genre_taken_in_over_a_use_is_the_genre_the_track_shows() {
+    let (w, velo) = velo_sent_once();
+    w.use_genre(velo, "Techno");
+    w.send();
+    assert_eq!(w.indexed_genre(velo).as_deref(), Some("Techno"));
+    // Imported, then changed in rekordbox.
+    w.rekordbox_now(&[("Genre", "Disco")]);
+
+    w.send();
+
+    assert_eq!(w.own(velo, "Genre"), None);
+    assert_eq!(w.indexed_genre(velo).as_deref(), Some("Disco"));
+}
+
+#[test]
+fn undo_of_a_use_after_the_send_that_carried_it_works_and_the_next_send_carries_rekordboxs_genre_again(
+) {
+    // The store's rule for any edit (a send writes no row of `app_value`, so
+    // nothing holds the edit in place): Use, send, Undo takes the own genre
+    // away, and the track follows rekordbox again.
+    let (w, velo) = velo_sent_once();
+    w.use_genre(velo, "Techno");
+    w.send();
+    assert_eq!(w.base(velo, "Genre").as_deref(), Some("Techno"));
+
+    match ops::undo_last_via(&w.writer).unwrap() {
+        UndoOutcome::Undone { operation } => {
+            assert_eq!(operation.kind, crate::genre::own::SET_GENRE_OPERATION)
+        }
+        other => panic!("expected the Use undone, got {other:?}"),
+    }
+    assert_eq!(w.own(velo, "Genre"), None);
+    assert_eq!(w.indexed_genre(velo).as_deref(), Some("House"));
+
+    // The send wasn't imported: rekordbox still shows House.
+    w.rekordbox_now(&[]);
+    let preflight = w.send();
+    assert_eq!(preflight.conflicts_waiting, 0);
+    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("House"));
+    assert_eq!(w.conflicts(), Vec::<String>::new());
+}

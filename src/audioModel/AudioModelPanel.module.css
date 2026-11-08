@@ -53,6 +53,43 @@
   overflow-wrap: anywhere;
 }
 
+.genreGuesses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.genreGuess {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+/* "Use": a quiet text button, as the energy suggestion's. */
+.use {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.use:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.use:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
 .results {
   display: flex;
   flex-direction: column;

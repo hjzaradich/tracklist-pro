@@ -1,12 +1,15 @@
 {
   "title": "Audio model",
-  "opinion": "The model's opinion (nothing here changes your track)",
+  "opinion": "The model's opinion (nothing changes unless you press Use)",
   "genre": "Genre",
   "mood": "Mood",
   "guess": "{{label}} {{percent}}%",
   "guessSeparator": ", ",
   "noGenre": "No genre guess",
   "noMood": "No mood guess",
+  "use": "Use",
+  "useGenre": "Use {{genre}} as this track's genre",
+  "used": "Genre set to {{genre}}",
   "similar": {
     "title": "Sounds like",
     "track": "{{artist}} - {{title}}",

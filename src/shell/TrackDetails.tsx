@@ -25,14 +25,16 @@ const FIELD_LABEL = {
   comment: "details.field.comment",
 } as const satisfies Record<TagField, string>;
 
-/** A value that is a file's tag names the file; rekordbox's is just rekordbox. */
+/** A value that is a file's tag names the file; rekordbox's is just rekordbox; the user's own edit says so. */
 function Source({ value }: { value: SourcedValue }) {
   const { t } = useTranslation("shell");
   return (
     <span className={styles.source}>
-      {value.file === null
-        ? t("details.source.rekordbox")
-        : t("details.source.file", { file: value.file.name })}
+      {value.origin === "yours"
+        ? t("details.source.yours")
+        : value.file === null
+          ? t("details.source.rekordbox")
+          : t("details.source.file", { file: value.file.name })}
     </span>
   );
 }

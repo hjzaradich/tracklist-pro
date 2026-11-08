@@ -14,6 +14,7 @@
 
 pub mod commands;
 pub mod edit;
+pub mod own;
 pub mod seed;
 pub mod unmapped;
 
