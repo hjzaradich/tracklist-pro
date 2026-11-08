@@ -7,7 +7,9 @@ use rusqlite::Connection;
 use tempfile::TempDir;
 
 use super::check::Caps;
-use super::swap::{finish, on_startup, put_back_with, start, Layout, Swapped, KEEP_BACKUPS};
+use super::swap::{
+    finish, on_startup, put_back_with, start, start_with, Layout, Swapped, KEEP_BACKUPS,
+};
 use super::*;
 use crate::db::migrations::{self, MIGRATIONS};
 use crate::db::{db_path, Writer};
@@ -489,13 +491,20 @@ fn the_old_librarys_log_moves_with_it_and_never_joins_the_new_file() {
     let layout = Layout::of(&guard);
     let live = live(&guard);
     write_only_to_the_log(root.path(), &live);
-    // A swap already under way, so the log isn't folded in first.
-    fs::create_dir_all(&layout.swapping).unwrap();
+    // A swap under way: the log already moved aside, the file not yet.
+    log_moved_aside(&layout, &live);
     finish(&guard, &layout, 300, &mut || false).unwrap();
     assert!(!swap_piece(&live, "-wal").exists());
     assert!(has_crate(&live, "new") && !has_crate(&live, "in-log"));
     let kept = layout.backups.join(&kept_ids(&guard)[0]).join(DB_FILE_NAME);
     assert!(has_crate(&kept, "in-log") && has_crate(&kept, "old"));
+}
+
+/// The state of a swap stopped after the log moved aside and before the file.
+fn log_moved_aside(layout: &Layout, live: &Path) {
+    fs::create_dir_all(&layout.swapping).unwrap();
+    let aside = layout.swapping.join(DB_FILE_NAME);
+    fs::rename(swap_piece(live, "-wal"), swap_piece(&aside, "-wal")).unwrap();
 }
 
 /// Gives the Library at `live` a crate "in-log" that is only in its -wal,
@@ -773,19 +782,176 @@ fn a_swap_stopped_before_the_new_file_moved_in_opens_the_old_library_once() {
 }
 
 #[test]
-fn a_swap_stopped_between_pieces_brings_the_log_home() {
+fn a_log_left_aside_is_folded_in_even_when_the_swap_stops_right_after() {
     let root = TempDir::new().unwrap();
     let guard = confirmed_swap(root.path());
     let layout = Layout::of(&guard);
     let live = live(&guard);
     write_only_to_the_log(root.path(), &live);
-    // Under way already (no fold): the -wal moves, then the stop.
-    fs::create_dir_all(&layout.swapping).unwrap();
+    // Under way already: the -wal moved aside, then the stop before the file.
+    log_moved_aside(&layout, &live);
     let swapped = start(&guard, &layout, 1, &mut crash_at(3)).unwrap();
     assert_eq!(swapped, Swapped::NotReplaced(EventReason::CantWrite));
-    assert!(swap_piece(&live, "-wal").exists());
     assert!(!swap_piece(&layout.swapping.join(DB_FILE_NAME), "-wal").exists());
     assert!(has_crate(&live, "in-log") && has_crate(&live, "old"));
+}
+
+#[test]
+fn a_swap_stopped_between_pieces_brings_the_piece_home() {
+    let root = TempDir::new().unwrap();
+    let guard = confirmed_swap(root.path());
+    let layout = Layout::of(&guard);
+    let live = live(&guard);
+    // A file the fold can't open, with shared memory beside it: it moves aside
+    // (step 2), and the stop before the file (step 3) leaves it there.
+    fs::write(&live, b"not a database").unwrap();
+    fs::write(swap_piece(&live, "-shm"), b"shm").unwrap();
+    let swapped = start(&guard, &layout, 1, &mut crash_at(3)).unwrap();
+    assert_eq!(swapped, Swapped::NotReplaced(EventReason::CantWrite));
+    // The start's own put-back brought it home beside its file.
+    assert_eq!(fs::read(swap_piece(&live, "-shm")).unwrap(), b"shm");
+    assert!(!swap_piece(&layout.swapping.join(DB_FILE_NAME), "-shm").exists());
+    assert_eq!(fs::read(&live).unwrap(), b"not a database");
+}
+
+/// A confirmed swap whose old Library has a crate "in-log" only in its log,
+/// and an earlier stop's `swapping` folder with `stale` in it.
+fn swap_over_a_stale_folder(root: &Path, stale: &[&str]) -> (WriteGuard, Layout) {
+    let guard = confirmed_swap(root);
+    let layout = Layout::of(&guard);
+    write_only_to_the_log(root, &live(&guard));
+    fs::create_dir_all(&layout.swapping).unwrap();
+    for name in stale {
+        fs::write(layout.swapping.join(name), b"x").unwrap();
+    }
+    (guard, layout)
+}
+
+#[test]
+fn an_empty_set_aside_folder_left_by_a_stop_doesnt_skip_folding_the_log_in() {
+    let root = TempDir::new().unwrap();
+    let (guard, layout) = swap_over_a_stale_folder(root.path(), &[]);
+    finish(&guard, &layout, 1, &mut || false).unwrap();
+    let kept = layout.backups.join(&kept_ids(&guard)[0]).join(DB_FILE_NAME);
+    assert!(!swap_piece(&kept, "-wal").exists() && !swap_piece(&kept, "-shm").exists());
+    assert!(has_crate(&kept, "in-log") && has_crate(&kept, "old"));
+    assert!(has_crate(&live(&guard), "new"));
+}
+
+#[test]
+fn a_log_left_in_the_set_aside_folder_without_its_file_comes_home_and_is_folded_in() {
+    let root = TempDir::new().unwrap();
+    let (guard, layout) = swap_over_a_stale_folder(root.path(), &[]);
+    log_moved_aside(&layout, &live(&guard));
+    finish(&guard, &layout, 1, &mut || false).unwrap();
+    let kept = layout.backups.join(&kept_ids(&guard)[0]).join(DB_FILE_NAME);
+    assert!(!swap_piece(&kept, "-wal").exists() && !swap_piece(&kept, "-shm").exists());
+    assert!(has_crate(&kept, "in-log") && has_crate(&kept, "old"));
+    assert!(has_crate(&live(&guard), "new") && !layout.swapping.exists());
+}
+
+#[test]
+fn a_stale_piece_that_clashes_with_one_in_place_is_refused_and_both_are_kept() {
+    let root = TempDir::new().unwrap();
+    let (guard, layout) = swap_over_a_stale_folder(root.path(), &["tracklist-pro.db-wal"]);
+    let started = start(&guard, &layout, 1, &mut || false).unwrap();
+    assert_eq!(started, Swapped::NotReplaced(EventReason::FileInTheWay));
+    let live = live(&guard);
+    assert!(has_crate(&live, "old") && has_crate(&live, "in-log"));
+    // Kept whole, set apart where nothing reads it.
+    let apart = layout.backups.join(format!("{}-stray", stamp(1)));
+    assert_eq!(fs::read(apart.join("tracklist-pro.db-wal")).unwrap(), b"x");
+    assert!(!layout.swapping.exists());
+}
+
+#[test]
+fn a_stale_log_refused_for_its_clash_is_not_replayed_when_the_import_is_confirmed_again() {
+    let root = TempDir::new().unwrap();
+    let (guard, layout) = swap_over_a_stale_folder(root.path(), &[]);
+    let live = live(&guard);
+    // An older copy of the Library's log sits in `swapping`, its name taken
+    // beside the Library: the swap is refused and nothing is put back.
+    let wal = layout.swapping.join("tracklist-pro.db-wal");
+    fs::copy(swap_piece(&live, "-wal"), &wal).unwrap();
+    let started = start(&guard, &layout, 1, &mut || false).unwrap();
+    assert_eq!(started, Swapped::NotReplaced(EventReason::FileInTheWay));
+    // The Library carries on and is written to.
+    write_later(&live);
+    // Confirmed again in the same session: the old log must not come back.
+    confirm_staged(&guard).unwrap();
+    let swapped = start(&guard, &layout, 2, &mut crash_at(2)).unwrap();
+    assert_eq!(swapped, Swapped::NotReplaced(EventReason::CantWrite));
+    assert!(has_crate(&live, "later") && has_crate(&live, "in-log"));
+    let apart = layout.backups.join(format!("{}-stray", stamp(1)));
+    assert!(apart.join("tracklist-pro.db-wal").exists());
+}
+
+/// The crates in the Library at `live`, after adding "later" to it (closed
+/// again, so its log is written into the file).
+fn write_later(live: &Path) {
+    let conn = Connection::open(live).unwrap();
+    conn.execute(
+        "INSERT INTO crate (id, kind, name) VALUES (20, 'static', 'later')",
+        [],
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_log_that_couldnt_come_home_is_set_apart_and_never_replayed_over_later_writes() {
+    let root = TempDir::new().unwrap();
+    let (guard, layout) = swap_over_a_stale_folder(root.path(), &[]);
+    let live = live(&guard);
+    log_moved_aside(&layout, &live);
+    // A stop right after the log moved, then a put-back that fails: the
+    // Library opens without the log, which must not come back later.
+    let swapped = start_with(&guard, &layout, 1, &mut crash_at(1), &mut |_, _| {
+        Err(BundleError::Interrupted)
+    })
+    .unwrap();
+    assert_eq!(swapped, Swapped::NotReplaced(EventReason::CantWrite));
+    let apart = layout.backups.join(format!("{}-stray", stamp(1)));
+    assert!(swap_piece(&apart.join(DB_FILE_NAME), "-wal").exists());
+    assert!(!layout.swapping.exists());
+    write_later(&live);
+    // The staged file is still there: confirmed again, it swaps in.
+    confirm_staged(&guard).unwrap();
+    let swapped = start(&guard, &layout, 2, &mut crash_at(2)).unwrap();
+    assert_eq!(swapped, Swapped::NotReplaced(EventReason::CantWrite));
+    assert!(has_crate(&live, "later") && has_crate(&live, "old"));
+    assert!(!has_crate(&live, "in-log"));
+    assert!(swap_piece(&apart.join(DB_FILE_NAME), "-wal").exists());
+    // And once it goes through, the backup is the Library as it was left.
+    confirm_staged(&guard).unwrap();
+    start(&guard, &layout, 3, &mut || false).unwrap();
+    let kept = layout.backups.join(&kept_ids(&guard)[0]).join(DB_FILE_NAME);
+    assert!(has_crate(&kept, "later") && !has_crate(&kept, "in-log"));
+    assert!(swap_piece(&apart.join(DB_FILE_NAME), "-wal").exists());
+}
+
+#[test]
+fn pieces_left_without_their_file_while_the_library_is_in_place_are_set_apart_at_start() {
+    let root = TempDir::new().unwrap();
+    let (guard, layout) = set_aside_whole(root.path());
+    // The Library is home; what stays in `swapping` has no file.
+    fs::rename(layout.swapping.join(DB_FILE_NAME), live(&guard)).unwrap();
+    write_later(&live(&guard));
+    assert!(swap_piece(&layout.swapping.join(DB_FILE_NAME), "-wal").exists());
+    // Two starts: the second finds a name taken and keeps both.
+    for (now, name) in [(5, 5), (5, 6)] {
+        fs::create_dir_all(&layout.swapping).unwrap();
+        fs::write(layout.swapping.join("piece"), name.to_string()).unwrap();
+        assert_eq!(
+            start(&guard, &layout, now, &mut || false).unwrap(),
+            Swapped::Nothing
+        );
+    }
+    assert!(has_crate(&live(&guard), "later"));
+    let first = layout.backups.join(format!("{}-stray", stamp(5)));
+    let second = layout.backups.join(format!("{}-stray", stamp(6)));
+    assert!(swap_piece(&first.join(DB_FILE_NAME), "-wal").exists());
+    assert_eq!(fs::read(second.join("piece")).unwrap(), b"6");
+    assert!(!layout.swapping.exists() && kept_ids(&guard).is_empty());
 }
 
 #[test]
@@ -1028,6 +1194,29 @@ fn a_put_back_failing_at_any_step_leaves_no_piece_beside_a_missing_file() {
             }
         }
     }
+}
+
+#[test]
+fn a_second_failure_keeps_the_earlier_stray_copy_and_adds_its_own() {
+    let root = TempDir::new().unwrap();
+    let (guard, layout) = set_aside_whole(root.path());
+    let stray = |n: &str| swap_piece(&swap_piece(&layout.live, "-wal"), n);
+    fs::write(stray(".stray"), b"first").unwrap();
+    fs::write(stray(".stray-2"), b"second").unwrap();
+    let mut calls = 0;
+    // The -wal and -shm come home, the file fails, and nothing goes back.
+    let failed = put_back_with(&guard, &layout, &mut |from, to| {
+        calls += 1;
+        if calls >= 3 {
+            return Err(BundleError::Interrupted);
+        }
+        fs::rename(from, to).map_err(BundleError::Io)
+    });
+    assert!(failed.is_err());
+    assert_eq!(fs::read(stray(".stray")).unwrap(), b"first");
+    assert_eq!(fs::read(stray(".stray-2")).unwrap(), b"second");
+    assert_eq!(fs::read(stray(".stray-3")).unwrap(), b"wal");
+    assert!(beside_live(&layout).is_empty());
 }
 
 #[test]

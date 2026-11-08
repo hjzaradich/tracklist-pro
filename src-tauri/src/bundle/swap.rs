@@ -22,7 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::folders::{exists, keep_newest, make_folder, ours, remove};
+use super::folders::{exists, keep_newest, make_folder, ours, remove, remove_empty_folder};
 use super::BundleError;
 use crate::db::{db_path, DB_FILE_NAME};
 use crate::diagnostics::{EventKind, EventLog, EventReason, LogEvent};
@@ -119,15 +119,33 @@ pub(super) fn start(
     now_ms: i64,
     crash: &mut dyn FnMut() -> bool,
 ) -> Result<Swapped, BundleError> {
+    start_with(guard, layout, now_ms, crash, &mut |from, to| {
+        Ok(guard.rename(from, to)?)
+    })
+}
+
+/// [`start`], with the move that puts pieces back open to tests too.
+pub(super) fn start_with(
+    guard: &WriteGuard,
+    layout: &Layout,
+    now_ms: i64,
+    crash: &mut dyn FnMut() -> bool,
+    mv: &mut dyn FnMut(&Path, &Path) -> Result<(), BundleError>,
+) -> Result<Swapped, BundleError> {
     let error = match finish(guard, layout, now_ms, crash) {
         Ok(swapped) => return Ok(swapped),
         Err(error) => error,
     };
     eprintln!("startup: the Library couldn't be replaced: {error}");
     if !exists(&layout.live) || !exists(&layout.swapping.join(DB_FILE_NAME)) {
-        if let Err(again) = put_back(guard, layout) {
+        if let Err(again) = put_back_with(guard, layout, mv) {
             eprintln!("startup: the old Library couldn't all be put back: {again}");
         }
+        // Whatever stays (a piece that failed to move, or one skipped
+        // because its name is taken beside the Library) belongs to a state
+        // the Library in place has left, and it writes from now on: it must
+        // never be put beside it again.
+        quarantine_orphans(guard, layout, now_ms);
     }
     if !exists(&layout.live) {
         return Err(error);
@@ -170,6 +188,9 @@ pub(super) fn finish(
         if exists(&aside) && !exists(&l.live) {
             put_back(guard, l)?;
         }
+        // Pieces left with no file, the Library in place and no confirm:
+        // they belong to a state it has left (the app has run since).
+        quarantine_orphans(guard, l, now_ms);
         if exists(&aside) && exists(&l.live) {
             let id = set_aside(guard, l, now_ms)?;
             keep_newest(guard, &l.backups, KEEP_BACKUPS, is_stamp, Some(&id));
@@ -185,10 +206,20 @@ pub(super) fn finish(
         {
             return Err(BundleError::Blocked);
         }
-        // `swapping` there means a swap under way: its pieces may already
-        // be split, so the file isn't touched. (An empty one left by a crash
-        // just after it was made skips the fold too; the pieces then travel
-        // together, so nothing is lost.)
+        // A `swapping` folder without the Library's file in it is not a swap
+        // under way past its first piece: the file never left. Whatever
+        // an earlier stop left there (nothing, or pieces of this Library's
+        // set) comes home first, so the fold below sees the whole set and
+        // the folder is made fresh. With the file in it the swap is further
+        // on: the file isn't touched and the fold is skipped, the pieces
+        // travelling together.
+        if exists(&l.swapping) && !exists(&aside) {
+            step()?;
+            put_back(guard, l)?;
+            if ours(&l.swapping, |_| true).is_empty() {
+                remove_empty_folder(guard, &l.swapping)?;
+            }
+        }
         if !exists(&l.swapping) {
             fold(guard, &l.live);
         }
@@ -213,12 +244,36 @@ pub(super) fn finish(
         step()?;
         kept = Some(set_aside(guard, l, now_ms)?);
     } else if exists(&l.swapping) && ours(&l.swapping, |_| true).is_empty() {
-        remove(guard, &l.swapping)?;
+        remove_empty_folder(guard, &l.swapping)?;
     }
     step()?;
     remove(guard, &l.marker)?;
     keep_newest(guard, &l.backups, KEEP_BACKUPS, is_stamp, kept.as_deref());
     Ok(Swapped::Replaced(kept))
+}
+
+/// Pieces in `backups/swapping` with the Library's file not among them and
+/// a Library in place are orphans: the file is not coming back to them, and
+/// a log put beside a file that has been written since would be replayed
+/// over it. The folder is renamed to `backups/<stamp>-stray` (a name no
+/// backup list reads), to the next free millisecond: kept, never deleted
+/// or written over. Best effort: a failure is logged and tried again at
+/// the next start.
+fn quarantine_orphans(guard: &WriteGuard, l: &Layout, now_ms: i64) {
+    if !exists(&l.live)
+        || exists(&l.swapping.join(DB_FILE_NAME))
+        || ours(&l.swapping, |_| true).is_empty()
+    {
+        return;
+    }
+    let mut ms = now_ms;
+    while exists(&l.backups.join(format!("{}-stray", stamp(ms)))) {
+        ms += 1;
+    }
+    let to = l.backups.join(format!("{}-stray", stamp(ms)));
+    if let Err(e) = guard.rename(&l.swapping, &to) {
+        eprintln!("startup: pieces of an old Library couldn't be set apart: {e}");
+    }
 }
 
 /// Renames `backups/swapping` to a backup named for `now_ms`, or the next
@@ -260,12 +315,26 @@ fn fold(guard: &WriteGuard, live: &Path) {
 /// When a move fails and the file isn't in place, the pieces already home
 /// would sit beside no file, where a different file moving in could meet
 /// them: they go back to `swapping` with their file. A piece that can't go
-/// back is renamed in place to `<piece>.stray`, a name SQLite never reads
-/// (never deleted: it may be the only copy of the log); if that fails too
+/// back is renamed in place to `<piece>.stray` (or the next free
+/// `.stray-2`...), a name SQLite never reads (never deleted or written over:
+/// it may be the only copy of the log); if that fails too
 /// it is logged and left. With the file in place, its own pieces
 /// stay: they are its set.
 fn put_back(guard: &WriteGuard, l: &Layout) -> Result<(), BundleError> {
     put_back_with(guard, l, &mut |from, to| Ok(guard.rename(from, to)?))
+}
+
+/// `<piece>.stray`, or the first of `.stray-2`, `.stray-3`... not taken: a
+/// kept copy is never written over (a rename onto a name replaces it).
+fn free_stray(piece_path: &Path) -> PathBuf {
+    let first = piece(piece_path, ".stray");
+    let mut n = 2;
+    let mut name = first.clone();
+    while exists(&name) {
+        name = piece(piece_path, &format!(".stray-{n}"));
+        n += 1;
+    }
+    name
 }
 
 /// [`put_back`], with the move open to tests (which make it fail).
@@ -285,7 +354,7 @@ pub(super) fn put_back_with(
                     for (from, to) in home.iter().rev() {
                         if mv(to, from).is_err() {
                             // Never deleted: it may be the only copy of the log.
-                            let stray = piece(to, ".stray");
+                            let stray = free_stray(to);
                             if let Err(e) = guard.rename(to, &stray) {
                                 eprintln!(
                                     "startup: a piece of the old Library stays beside no file: {e}"

@@ -472,6 +472,13 @@ impl WriteGuard {
         Ok(path)
     }
 
+    /// Deletes a folder only if it is empty (it fails otherwise, so nothing
+    /// in it is ever lost). A root can't be deleted.
+    pub fn remove_empty_folder(&self, path: &Path) -> Result<(), GuardError> {
+        let checked = self.check_entry(path)?;
+        fs::remove_dir(&checked.path).map_err(|e| checked.io(e))
+    }
+
     /// Deletes a folder and everything in it. Links (the folder itself, or
     /// any inside it) are removed, never followed, so nothing they point to
     /// is touched. A root can't be deleted.

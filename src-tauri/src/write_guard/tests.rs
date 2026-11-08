@@ -77,6 +77,7 @@ impl Sandbox {
             self.guard.remove_leftover_parts(path).map(drop),
         );
         refused("remove_dir_all", self.guard.remove_dir_all(path));
+        refused("remove_empty_folder", self.guard.remove_empty_folder(path));
         let inside = self.data().join("inside.txt");
         self.guard.write(&inside, b"in").unwrap();
         refused("rename in", self.guard.rename(&inside, path));
@@ -326,6 +327,23 @@ fn deleting_a_folder_in_the_root_removes_a_link_in_it_but_not_what_it_points_to(
     sb.guard.remove_dir_all(&folder).unwrap();
     assert!(!folder.exists());
     assert_eq!(fs::read(sb.outside().join("keep.txt")).unwrap(), b"keep");
+}
+
+#[test]
+fn removing_an_empty_folder_fails_on_a_folder_with_anything_in_it() {
+    let sb = Sandbox::new();
+    let folder = sb.data().join("folder");
+    sb.guard.create_dir_all(&folder).unwrap();
+    sb.guard.write(&folder.join("kept.txt"), b"kept").unwrap();
+    assert!(sb.guard.remove_empty_folder(&folder).is_err());
+    assert_eq!(fs::read(folder.join("kept.txt")).unwrap(), b"kept");
+    sb.guard.remove_file(&folder.join("kept.txt")).unwrap();
+    sb.guard.remove_empty_folder(&folder).unwrap();
+    assert!(!folder.exists());
+    assert!(matches!(
+        sb.guard.remove_empty_folder(&sb.data()),
+        Err(GuardError::IsRoot(_))
+    ));
 }
 
 #[test]

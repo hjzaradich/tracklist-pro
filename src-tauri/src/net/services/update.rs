@@ -97,7 +97,9 @@ pub fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
 
 /// A version with its pre-release part, ordered as semver says: the same
 /// numbers with a pre-release part are older (`0.2.0-beta` < `0.2.0`).
-#[derive(Debug, PartialEq, Eq)]
+/// Equal exactly when the order says so (`rc.1` and `rc.01` are the same
+/// version; build metadata is dropped at parse).
+#[derive(Debug, Eq)]
 struct Semver {
     core: (u64, u64, u64),
     pre: Vec<String>,
@@ -154,6 +156,12 @@ impl Ord for Semver {
                     self.pre.len().cmp(&other.pre.len())
                 }
             })
+    }
+}
+
+impl PartialEq for Semver {
+    fn eq(&self, other: &Semver) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
     }
 }
 
@@ -234,6 +242,39 @@ mod tests {
         assert!(!is_newer("0.2.0-rc.1", "0.2.0-rc.1"));
         assert!(!is_newer("0.1.9", "0.2.0-beta"));
         assert!(!is_newer("0.2.0", "0.2.0-"));
+    }
+
+    #[test]
+    fn two_versions_are_equal_exactly_when_their_order_is_equal() {
+        let all = [
+            "1.0.0",
+            "v1.0.0",
+            "1.0.0+a",
+            "1.0.0+b",
+            "1.0.0-rc.1",
+            "1.0.0-rc.01",
+            "1.0.0-rc.1+build.5",
+            "1.0.0-rc.2",
+            "1.0.0-rc",
+            "1.0.0-beta",
+            "1.0.1",
+            "1.0.0-rc.a",
+            "1.0.0-rc.A",
+        ];
+        let parsed: Vec<Semver> = all.iter().map(|v| Semver::parse(v).unwrap()).collect();
+        for (a, x) in all.iter().zip(&parsed) {
+            for (b, y) in all.iter().zip(&parsed) {
+                assert_eq!(x == y, x.cmp(y) == std::cmp::Ordering::Equal, "{a} vs {b}");
+                assert_eq!(x.partial_cmp(y), Some(x.cmp(y)), "{a} vs {b}");
+            }
+        }
+        // The cases that matter, spelled out.
+        let v = |t: &str| Semver::parse(t).unwrap();
+        assert!(v("1.0.0+a") == v("1.0.0+b"));
+        assert!(v("1.0.0-rc.1") == v("1.0.0-rc.01"));
+        assert!(v("1.0.0-rc.1+x") == v("1.0.0-rc.1"));
+        assert!(v("1.0.0-rc.1") != v("1.0.0"));
+        assert!(v("1.0.0-rc.a") != v("1.0.0-rc.A"));
     }
 
     #[test]

@@ -18,7 +18,7 @@ function status(over: Partial<UpdateStatus> = {}): UpdateStatus {
 }
 
 /** Stands in for the Rust side: the stored answer, and what each command does to it. */
-function fakeBackend(start: UpdateStatus, found: UpdateStatus["available"] = null) {
+function fakeBackend(start: UpdateStatus, found: UpdateStatus["available"] = null, holdCheck?: Promise<void>) {
   const backend = { status: start, calls: [] as string[], sets: [] as boolean[] };
   mockIPC((cmd, args) => {
     backend.calls.push(cmd);
@@ -31,6 +31,7 @@ function fakeBackend(start: UpdateStatus, found: UpdateStatus["available"] = nul
         backend.status = { ...backend.status, asked: true, enabled: a.on as boolean };
         return null;
       case "check_for_updates":
+        if (holdCheck) return holdCheck.then(() => backend.status);
         if (backend.status.enabled) backend.status = { ...backend.status, available: found, checkedAt: "2026-11-07T10:00:00.000Z" };
         return backend.status;
       default:
@@ -69,6 +70,20 @@ describe("the first-run question about update checks", () => {
     await userEvent.click(await screen.findByRole("button", { name: tx("updates:ask.yes") }));
     await waitFor(() => expect(backend.sets).toEqual([true]));
     await waitFor(() => expect(backend.calls).toContain("check_for_updates"));
+  });
+
+  it("closes as soon as the answer is stored, before the check itself finishes", async () => {
+    // The check is held open until the test lets it go: no timing involved.
+    let release = () => {};
+    const latch = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const backend = fakeBackend(status(), null, latch);
+    renderWith(<UpdateQuestion />);
+    await userEvent.click(await screen.findByRole("button", { name: tx("updates:ask.yes") }));
+    await waitFor(() => expect(backend.calls).toContain("check_for_updates"));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: tx("updates:ask.title") })).toBeNull());
+    release();
   });
 
   it("does not show again once answered, whatever the Library holds", async () => {
