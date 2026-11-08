@@ -101,7 +101,7 @@ In [TASKS-archive.md](TASKS-archive.md).
 
 ### Run 5B (owner 2026-11-08: "go for 5B first then build the installer afterwards", budget about 15 weekly points, started at 43%, stop by about 60%)
 - **3.8 part 2, using the audio model** (owner decisions 2026-11-08 in ROADMAP 3.8):
-  - B1 "Use" on a generic genre guess in the Audio model panel: sets the track's genre as an ordinary genre edit (one Undo; sent like any edit; an unknown name goes to Review's Unmapped genres).
+  - ✅ B1 (PR 224; Fable review 7/7 mutations + fix-check) "Use" on a generic genre guess in the Audio model panel: sets the track's genre as an ordinary genre edit (one Undo; sent like any edit; an unknown name goes to Review's Unmapped genres).
   - ✅ B2 (PR 222; Sonnet review, 5/5 mutations) "sounds similar" as a What's next signal (default weight 1 while the audio model is on; never the only reason; listed as not used while the model is off or the track has no fingerprint).
   - ✅ B3a (PR 223; Sonnet review, 5/6 mutations, gaps closed) your own genre model, backend: a small model learned from the fingerprints of tracks you've given a genre (genres only; at least 10 tracks per genre), re-learned automatically after fingerprinting and when genres change; migration 0056.
   - B3b "Your genres" in the Audio model panel, with "Use" (after B1 and B3a).
