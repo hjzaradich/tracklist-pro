@@ -42,10 +42,12 @@ pub struct Cached {
 const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 
 /// Stores `answer` for `file` by the rule in the module docs.
+#[cfg(test)]
 pub fn save(conn: &Connection, file: i64, answer: &Answer) -> rusqlite::Result<()> {
     save_at(conn, file, answer, current_rev(conn, file)?.unwrap_or(0))
 }
 
+#[cfg(test)]
 /// The file's `fingerprint_rev` now, if it has a row.
 fn current_rev(conn: &Connection, file: i64) -> rusqlite::Result<Option<i64>> {
     conn.query_row(
