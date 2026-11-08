@@ -66,8 +66,8 @@ const SETTLE_NOW_LIMIT: usize = 10;
 pub enum SetGenreError {
     /// The name is blank.
     NameEmpty,
-    /// The edit store refused: no such Library track, a name XML can't
-    /// carry, or the database.
+    /// The edit store refused: no such Library track, a name holding a
+    /// character XML can't carry (`BadValue`), or the database.
     Store(AppValueError),
 }
 
@@ -83,6 +83,9 @@ impl From<SetGenreError> for IpcError {
             SetGenreError::NameEmpty => IpcError::new(ErrorKind::GenreNameEmpty),
             SetGenreError::Store(AppValueError::NoTrack(_)) => {
                 IpcError::new(ErrorKind::LibraryTrackNotFound)
+            }
+            SetGenreError::Store(AppValueError::BadValue { .. }) => {
+                IpcError::new(ErrorKind::GenreNameNotSendable)
             }
             SetGenreError::Store(AppValueError::Ops(e)) => e.into(),
             SetGenreError::Store(e) => {

@@ -773,3 +773,31 @@ fn rekordboxs_later_genre_taken_in_over_a_use_is_the_genre_the_track_shows() {
     assert_eq!(w.own(velo, "Genre"), None);
     assert_eq!(w.indexed_genre(velo).as_deref(), Some("Disco"));
 }
+
+#[test]
+fn undo_of_a_use_after_the_send_that_carried_it_works_and_the_next_send_carries_rekordboxs_genre_again(
+) {
+    // The store's rule for any edit (a send writes no row of `app_value`, so
+    // nothing holds the edit in place): Use, send, Undo takes the own genre
+    // away, and the track follows rekordbox again.
+    let (w, velo) = velo_sent_once();
+    w.use_genre(velo, "Techno");
+    w.send();
+    assert_eq!(w.base(velo, "Genre").as_deref(), Some("Techno"));
+
+    match ops::undo_last_via(&w.writer).unwrap() {
+        UndoOutcome::Undone { operation } => {
+            assert_eq!(operation.kind, crate::genre::own::SET_GENRE_OPERATION)
+        }
+        other => panic!("expected the Use undone, got {other:?}"),
+    }
+    assert_eq!(w.own(velo, "Genre"), None);
+    assert_eq!(w.indexed_genre(velo).as_deref(), Some("House"));
+
+    // The send wasn't imported: rekordbox still shows House.
+    w.rekordbox_now(&[]);
+    let preflight = w.send();
+    assert_eq!(preflight.conflicts_waiting, 0);
+    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("House"));
+    assert_eq!(w.conflicts(), Vec::<String>::new());
+}

@@ -171,6 +171,10 @@
     "purpose": "Refusal: a genre name or alias is over 200 characters.",
     "where": "Shown when a genre edit is refused."
   },
+  "error.notSendable": {
+    "purpose": "Refusal: a genre name set on a track (Use) holds a character rekordbox's XML can't carry, so it couldn't be sent.",
+    "where": "Audio model section, under the genre guesses, when Use is refused."
+  },
   "error.aliasTaken": {
     "purpose": "Refusal: the spelling is already a name or an alias; {{name}} is the genre it goes to.",
     "where": "Shown when a genre edit is refused."

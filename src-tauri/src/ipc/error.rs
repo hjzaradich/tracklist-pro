@@ -218,6 +218,9 @@ error_kinds! {
     GenreAliasTaken => "genre:error.aliasTaken", params: ["name"];
     /// A genre name or alias is longer than 200 characters.
     GenreTextTooLong => "genre:error.textTooLong", params: [];
+    /// A genre name holds a character rekordbox's XML can't carry, so a
+    /// send couldn't write it as a track's genre.
+    GenreNameNotSendable => "genre:error.notSendable", params: [];
     /// There is no playlist with that id (it was deleted meanwhile).
     PlaylistNotFound => "playlists:error.notFound", params: [];
     /// The entry to move tracks before is no longer in the playlist.

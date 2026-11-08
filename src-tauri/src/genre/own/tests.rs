@@ -342,6 +342,50 @@ fn use_refuses_a_blank_name_and_changes_nothing() {
     assert!(t.operations().is_empty());
 }
 
+#[test]
+fn use_refuses_a_name_rekordbox_cant_take_as_its_own_refusal_and_changes_nothing() {
+    use crate::ipc::{ErrorKind, IpcError};
+    let t = track(Some("House"));
+
+    let refused = t.use_genre("Tech\u{1}no").unwrap_err();
+
+    assert!(
+        matches!(
+            refused,
+            SetGenreError::Store(AppValueError::BadValue { .. })
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        IpcError::from(refused).kind(),
+        ErrorKind::GenreNameNotSendable,
+        "a refusal the user can read, not an internal error"
+    );
+    assert_eq!(t.own(), None);
+    assert!(t.operations().is_empty());
+    assert!(!t.due());
+}
+
+#[test]
+fn every_refusal_of_use_reaches_the_screen_as_its_own_kind() {
+    use crate::ipc::{ErrorKind, IpcError};
+    let kind = |e: SetGenreError| IpcError::from(e).kind();
+    assert_eq!(kind(SetGenreError::NameEmpty), ErrorKind::GenreNameEmpty);
+    assert_eq!(
+        kind(SetGenreError::Store(AppValueError::NoTrack(
+            LibraryTrackId(9)
+        ))),
+        ErrorKind::LibraryTrackNotFound
+    );
+    assert_eq!(
+        kind(SetGenreError::Store(AppValueError::BadValue {
+            field: GENRE_FIELD.into(),
+            value: "\u{1}".into(),
+        })),
+        ErrorKind::GenreNameNotSendable
+    );
+}
+
 // ---- Undo -----------------------------------------------------------------------
 
 #[test]
