@@ -8,6 +8,7 @@ import { EnergyStarsRow } from "./EnergyStarsRow";
 import { AudioModelRow } from "./AudioModelRow";
 import { LocalKeyRow } from "./LocalKeyRow";
 import { RekordboxDatabaseRow } from "./RekordboxDatabaseRow";
+import { OnlineServicesRows } from "./OnlineServicesRows";
 import { UpdateChecksRow } from "./UpdateChecksRow";
 import { WishlistFeatureRow } from "./WishlistFeatureRow";
 import styles from "./settings.module.css";
@@ -55,6 +56,7 @@ export function SettingsScreen() {
               {tu("settings.panel")}
             </h2>
             <UpdateChecksRow />
+            <OnlineServicesRows />
           </section>
           <section className={styles.panel} aria-labelledby={genresId}>
             <h2 id={genresId} className={styles.panelTitle}>

@@ -51,7 +51,7 @@ function fakeBackend({
     if (cmd === "send_state") return null;
     // The optional features' rows: off, as they are by default.
     if (cmd === "feature_enabled") return false;
-    if (cmd === "audio_model_status") return quietAnswer(cmd);
+    if (cmd === "audio_model_status" || cmd === "online_services_status") return quietAnswer(cmd);
     throw new Error(`unexpected command ${cmd}`);
   });
   return backend;
