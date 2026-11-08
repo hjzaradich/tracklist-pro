@@ -40,6 +40,9 @@ use tract_onnx::prelude::*;
 pub const EMBEDDING_LEN: usize = 192;
 /// How many label scores a track has.
 pub const LABEL_COUNT: usize = 527;
+/// The highest sample rate accepted from a file. Buffers are sized from the
+/// rate a header claims, so a corrupt or hostile header can't be believed.
+pub const MAX_RATE: u32 = 384_000;
 /// The sha256 of the one model file this code is written for.
 pub const MODEL_SHA256: &str = "a455633ff46e39382f5847a4b1a825b90ff40f1cc3f50c09d59f3d4ef06f0886";
 /// Where the installer puts the model, under the app's resource folder
@@ -95,6 +98,8 @@ pub enum ListenError {
     NoAudio,
     /// A format or codec this build can't decode.
     Unsupported,
+    /// The file claims a sample rate above [`MAX_RATE`].
+    ImpossibleRate(u32),
     /// The file is too damaged to read.
     Damaged,
     /// `keep_going` said stop.
@@ -109,6 +114,12 @@ impl fmt::Display for ListenError {
             ListenError::Unreadable(e) => write!(f, "the track can't be read: {e}"),
             ListenError::NoAudio => write!(f, "the track has no audio"),
             ListenError::Unsupported => write!(f, "the track's format can't be decoded"),
+            ListenError::ImpossibleRate(r) => {
+                write!(
+                    f,
+                    "the track claims a sample rate of {r} Hz, which can't be real"
+                )
+            }
             ListenError::Damaged => write!(f, "the track is damaged"),
             ListenError::Cancelled => write!(f, "cancelled"),
             ListenError::Model(e) => write!(f, "the audio model failed: {e}"),
@@ -199,12 +210,18 @@ impl AudioModel {
         keep_going: &dyn Fn() -> bool,
     ) -> Result<Listening, ListenError> {
         let read = decode::read_stretches(path, keep_going)?;
-        self.listen_stretches(&read.stretches, read.rate, read.duration)
+        self.listen_stretches(&read.stretches, read.rate, read.duration, keep_going)
     }
 
     /// Listens to a track already decoded: mono samples at `rate`.
-    pub fn listen_samples(&self, mono: &[f32], rate: u32) -> Result<Listening, ListenError> {
-        let (heard, window_starts) = self.hear_samples(mono, rate)?;
+    /// `keep_going` is asked before each window.
+    pub fn listen_samples(
+        &self,
+        mono: &[f32],
+        rate: u32,
+        keep_going: &dyn Fn() -> bool,
+    ) -> Result<Listening, ListenError> {
+        let (heard, window_starts) = self.hear_samples(mono, rate, keep_going)?;
         Ok(average(&heard, window_starts))
     }
 
@@ -213,8 +230,9 @@ impl AudioModel {
         stretches: &[Vec<f32>],
         rate: u32,
         duration: f64,
+        keep_going: &dyn Fn() -> bool,
     ) -> Result<Listening, ListenError> {
-        let heard = self.hear_stretches(stretches, rate)?;
+        let heard = self.hear_stretches(stretches, rate, keep_going)?;
         Ok(average(&heard, window::window_starts(duration)))
     }
 
@@ -222,22 +240,34 @@ impl AudioModel {
         &self,
         mono: &[f32],
         rate: u32,
+        keep_going: &dyn Fn() -> bool,
     ) -> Result<(Vec<Heard>, [f64; 3]), ListenError> {
         if rate == 0 || mono.is_empty() {
             return Err(ListenError::NoAudio);
+        }
+        if rate > MAX_RATE {
+            return Err(ListenError::ImpossibleRate(rate));
         }
         let starts = window::window_starts(mono.len() as f64 / f64::from(rate));
         let stretches: Vec<Vec<f32>> = starts
             .iter()
             .map(|&s| window::stretch_of(mono, rate, s))
             .collect();
-        Ok((self.hear_stretches(&stretches, rate)?, starts))
+        Ok((self.hear_stretches(&stretches, rate, keep_going)?, starts))
     }
 
-    fn hear_stretches(&self, stretches: &[Vec<f32>], rate: u32) -> Result<Vec<Heard>, ListenError> {
+    fn hear_stretches(
+        &self,
+        stretches: &[Vec<f32>],
+        rate: u32,
+        keep_going: &dyn Fn() -> bool,
+    ) -> Result<Vec<Heard>, ListenError> {
         stretches
             .iter()
             .map(|stretch| {
+                if !keep_going() {
+                    return Err(ListenError::Cancelled);
+                }
                 let wave = resample::to_window(stretch, rate).ok_or(ListenError::Unsupported)?;
                 self.hear_window(&wave)
             })

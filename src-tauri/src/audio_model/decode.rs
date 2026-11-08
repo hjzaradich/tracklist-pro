@@ -8,7 +8,7 @@ use std::path::Path;
 use symphonia::core::audio::GenericAudioBufferRef;
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
 use symphonia::core::codecs::CodecParameters;
-use symphonia::core::errors::Error as SymphoniaError;
+use symphonia::core::errors::{Error as SymphoniaError, SeekErrorKind};
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
 use symphonia::core::io::MediaSourceStream;
@@ -88,6 +88,10 @@ fn open(file: File) -> Result<(Reader, Option<u64>), ListenError> {
         .sample_rate
         .filter(|&r| r > 0)
         .ok_or(ListenError::NoAudio)?;
+    // A header can claim any rate; buffers are sized from it.
+    if rate > super::MAX_RATE {
+        return Err(ListenError::ImpossibleRate(rate));
+    }
     let decoder = symphonia::default::get_codecs()
         .make_audio_decoder(&params, &AudioDecoderOptions::default())
         .map_err(|e| failure(&e))?;
@@ -111,10 +115,23 @@ fn open(file: File) -> Result<(Reader, Option<u64>), ListenError> {
 fn failure(e: &SymphoniaError) -> ListenError {
     match e {
         SymphoniaError::Unsupported(_) => ListenError::Unsupported,
+        SymphoniaError::SeekError(SeekErrorKind::Unseekable | SeekErrorKind::ForwardOnly) => {
+            ListenError::Unsupported
+        }
         SymphoniaError::IoError(e) if e.kind() != ErrorKind::UnexpectedEof => {
             ListenError::Unreadable(e.to_string())
         }
         _ => ListenError::Damaged,
+    }
+}
+
+/// A failed seek: `Ok` only when the frame is past the end of the data (the
+/// stretch is then silence); every other kind is a real error, so a track
+/// that can't be seeked is never given a silent fingerprint.
+pub(crate) fn past_the_end(e: &SymphoniaError) -> Result<(), ListenError> {
+    match e {
+        SymphoniaError::SeekError(SeekErrorKind::OutOfRange) => Ok(()),
+        e => Err(failure(e)),
     }
 }
 
@@ -214,8 +231,7 @@ impl Reader {
                 self.decoder.reset();
                 Ok(Some(self.frames_of(seeked.actual_ts.get())))
             }
-            Err(SymphoniaError::SeekError(_)) => Ok(None),
-            Err(e) => Err(failure(&e)),
+            Err(e) => past_the_end(&e).map(|()| None),
         }
     }
 

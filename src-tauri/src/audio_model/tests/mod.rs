@@ -129,7 +129,7 @@ fn write_wav(path: &Path, samples: &[f32], rate: u32) {
     b.extend_from_slice(&3u16.to_le_bytes()); // IEEE float
     b.extend_from_slice(&1u16.to_le_bytes());
     b.extend_from_slice(&rate.to_le_bytes());
-    b.extend_from_slice(&(rate * 4).to_le_bytes());
+    b.extend_from_slice(&rate.wrapping_mul(4).to_le_bytes());
     b.extend_from_slice(&4u16.to_le_bytes());
     b.extend_from_slice(&32u16.to_le_bytes());
     b.extend_from_slice(b"fact");
@@ -180,7 +180,9 @@ fn a_short_track_is_padded_with_silence() {
 #[test]
 fn a_short_track_gets_a_fingerprint_and_scores() {
     let short = &signal_a()[..4 * 16_000];
-    let heard = model().listen_samples(short, 16_000).expect("listens");
+    let heard = model()
+        .listen_samples(short, 16_000, &|| true)
+        .expect("listens");
     assert_eq!(heard.fingerprint.len(), EMBEDDING_LEN);
     assert_eq!(heard.scores.len(), LABEL_COUNT);
     assert_eq!(heard.window_starts, [0.0, 0.0, 0.0]);
@@ -246,7 +248,9 @@ fn signal_a_through_the_front_end_and_model_matches_the_reference() {
 
 #[test]
 fn signal_b_through_resampling_windows_and_model_matches_the_reference() {
-    let (heard, starts) = model().hear_samples(&signal_b(), 44_100).expect("listens");
+    let (heard, starts) = model()
+        .hear_samples(&signal_b(), 44_100, &|| true)
+        .expect("listens");
     assert_eq!(starts, [5.0, 15.0, 25.0]);
     let (embs, logits) = (
         floats("whole_track_44k_40s.windows_emb.f32"),
@@ -286,7 +290,9 @@ fn a_wav_on_disk_gives_the_same_result_as_the_samples_it_holds() {
     let from_file = model()
         .listen(&path, &|| true)
         .expect("decodes and listens");
-    let from_samples = model().listen_samples(&samples, 44_100).expect("listens");
+    let from_samples = model()
+        .listen_samples(&samples, 44_100, &|| true)
+        .expect("listens");
     assert_eq!(from_file.window_starts, [5.0, 15.0, 25.0]);
     assert_eq!(from_file.window_starts, from_samples.window_starts);
     assert!(cosine(&from_file.fingerprint, &from_samples.fingerprint) >= 0.999_999);
@@ -342,4 +348,78 @@ fn a_missing_model_file_is_refused() {
 fn the_app_without_the_bundle_reports_the_model_missing() {
     let app = tauri::test::mock_app();
     assert!(AudioModel::load_bundled(app.handle()).is_err());
+}
+
+#[test]
+fn the_120_decibel_floor_holds_after_a_loud_burst_and_digital_silence() {
+    // One second of a full-scale tone, then nine of nothing.
+    let mut wave = vec![0f32; WINDOW_SAMPLES];
+    for (i, v) in wave.iter_mut().take(16_000).enumerate() {
+        *v = (2.0 * std::f64::consts::PI * 1000.0 * i as f64 / 16_000.0).sin() as f32;
+    }
+    let mel = Frontend::new().mel(&wave);
+    let loudest = mel.iter().copied().fold(f32::MIN, f32::max);
+    let quietest = mel.iter().copied().fold(f32::MAX, f32::min);
+    assert!(loudest > 30.0, "the tone should be loud: {loudest} dB");
+    // Silence alone would read -100 dB; the floor is 120 dB under the loudest.
+    assert!(
+        (quietest - (loudest - 120.0)).abs() < 1e-3,
+        "quietest {quietest}, loudest {loudest}"
+    );
+    // The last frame of a band well above the tone is pure silence: on the floor.
+    assert!((mel[(N_FRAMES - 1) + 10 * N_FRAMES] - quietest).abs() < 1e-3);
+}
+
+#[test]
+fn a_lying_sample_rate_is_refused_before_any_buffer_is_sized_from_it() {
+    let dir = tempfile::tempdir().unwrap();
+    for rate in [MAX_RATE + 1, 1_000_000, 4_000_000_000] {
+        let path = dir.path().join(format!("rate-{rate}.wav"));
+        write_wav(&path, &[0.0; 64], rate);
+        assert!(model().listen(&path, &|| true).is_err(), "rate {rate}");
+    }
+    let path = dir.path().join("rate-1000000.wav");
+    assert!(matches!(
+        model().listen(&path, &|| true),
+        Err(ListenError::ImpossibleRate(1_000_000))
+    ));
+    assert!(matches!(
+        model().listen_samples(&[0.1; 64], 4_000_000_000, &|| true),
+        Err(ListenError::ImpossibleRate(_))
+    ));
+}
+
+#[test]
+fn only_a_seek_past_the_end_is_silence_other_seek_errors_are_errors() {
+    use symphonia::core::errors::{Error, SeekErrorKind};
+    assert!(decode::past_the_end(&Error::SeekError(SeekErrorKind::OutOfRange)).is_ok());
+    for kind in [
+        SeekErrorKind::Unseekable,
+        SeekErrorKind::ForwardOnly,
+        SeekErrorKind::InvalidTrack,
+    ] {
+        assert!(decode::past_the_end(&Error::SeekError(kind)).is_err());
+    }
+    assert!(matches!(
+        decode::past_the_end(&Error::SeekError(SeekErrorKind::Unseekable)),
+        Err(ListenError::Unsupported)
+    ));
+}
+
+#[test]
+fn listening_is_cancellable_between_windows_during_inference() {
+    use std::cell::Cell;
+    let calls = Cell::new(0u32);
+    // Yes for the first window, no before the second.
+    let latch = || {
+        calls.set(calls.get() + 1);
+        calls.get() < 2
+    };
+    let result = model().listen_samples(&signal_b(), 44_100, &latch);
+    assert!(matches!(result, Err(ListenError::Cancelled)));
+    assert_eq!(
+        calls.get(),
+        2,
+        "asked before each window, and stopped at the second"
+    );
 }
