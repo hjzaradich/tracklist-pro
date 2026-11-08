@@ -97,7 +97,7 @@ In [TASKS-archive.md](TASKS-archive.md).
   - ✅ A2a (PR 219) the listening step: the app's own 16 kHz / 64-mel front end, the model loaded with `tract` after a sha256 check, three 10-second windows per track, a fingerprint and label scores; parity tests against the golden outputs. No database, no job.
   - A2b the fingerprint job: migration 0055 (the `embedding` table and label scores), a background job that runs only when the audio model is switched on (off by default), progress and cancel, what a bundle carries.
   - A3 (if the budget allows) "Sounds like" and genre suggestions, labelled as the audio model's opinion, and the Settings switch.
-- **Follow-ups:** F the bundle's stale set-aside folder skipping the fold before a swap; a second failure overwriting the earlier `.stray` copy; the update check: a test that the question closes before the check finishes, Semver equality agreeing with its order.
+- **Follow-ups:** ✅ F (PR 218; Fable review + fix-check: leftover pieces of an earlier failed swap are set aside as `-stray`, never folded over a Library that moved on) the bundle's stale set-aside folder skipping the fold before a swap; a second failure overwriting the earlier `.stray` copy; the update check: a test that the question closes before the check finishes, Semver equality agreeing with its order.
 
 ### Stage 1cE: Go public 👤
 - **Owner decision 2026-11-05: the owner's review work moves later.** P1 (wording and formatting), installer 0.1.8, the 1c checkpoint (1cE-1) and the owner's remaining 1cD-2 checks wait until the owner takes a deep dive; Phase 2 goes ahead meanwhile with plain, barebones wording and interface (strings stay proposed; the Editor's rule stands: warnings, data loss and rekordbox steps go to the owner first).
