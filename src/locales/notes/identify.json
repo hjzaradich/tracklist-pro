@@ -163,10 +163,6 @@
     "purpose": "Says the look-up of several tracks was started.",
     "where": "Look up panel, in Track details. Under the buttons."
   },
-  "lookUp.asked.someLeftOut": {
-    "purpose": "Says some selected tracks could not be looked up and why.",
-    "where": "Look up panel, in Track details. Under the buttons."
-  },
   "lookUp.asked.none": {
     "purpose": "Says nothing was started because no selected track is a Library track with a file.",
     "where": "Look up panel, in Track details. Under the buttons."
@@ -227,6 +223,10 @@
     "purpose": "Names an online service as a suggestion's source.",
     "where": "Look up panel, in Track details. Beside a suggestion."
   },
+  "lookUp.source.nameSearch": {
+    "purpose": "Names a MusicBrainz suggestion that came from searching by title and artist, not from a fingerprint.",
+    "where": "Look up panel, in Track details. After a suggestion, naming where it came from."
+  },
   "lookUp.source.onlineVia": {
     "purpose": "Names an online service and the service that led to it.",
     "where": "Look up panel, in Track details. Beside a suggestion."
@@ -250,6 +250,26 @@
   "lookUp.useAll": {
     "purpose": "Button that uses the first suggestion of every row shown, as one step.",
     "where": "Look up panel, in Track details. Under the rows, when more than one row is shown."
+  },
+  "lookUp.discogsCredit": {
+    "purpose": "Credits Discogs, as its terms ask, whenever a suggestion shown came from it.",
+    "where": "Look up panel, in Track details. Under the suggestions."
+  },
+  "lookUp.cover.loading": {
+    "purpose": "Says the cover is being fetched.",
+    "where": "Look up panel, in Track details. Above the suggestions, while the cover loads."
+  },
+  "lookUp.cover.none": {
+    "purpose": "Says the cover could not be fetched.",
+    "where": "Look up panel, in Track details. Above the suggestions, when fetching the cover failed."
+  },
+  "lookUp.cover.alt": {
+    "purpose": "Describes the cover picture to a screen reader when the release's album name isn't known.",
+    "where": "Look up panel, in Track details. The cover picture's alt text."
+  },
+  "lookUp.cover.altAlbum": {
+    "purpose": "Describes the cover picture to a screen reader, naming the album.",
+    "where": "Look up panel, in Track details. The cover picture's alt text."
   },
   "lookUp.used_one": {
     "purpose": "Says one suggestion was used.",

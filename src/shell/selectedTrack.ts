@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { create } from "zustand";
-import type { LibraryTrackId, TableRow } from "../bindings";
+import type { TableRow } from "../bindings";
 
 /**
  * The track the Details panel shows (ROADMAP 1.1, Layout): the selected row
@@ -9,17 +9,12 @@ import type { LibraryTrackId, TableRow } from "../bindings";
  * selected (`TableRow.recordingId`): the focused row alone, or all of a bigger
  * selection, which the Energy buttons act on (1cD, {@link useReportSelectedIds}).
  * `tables` is how many tables are on screen, so the shell draws the panel only
- * beside one. `libraryIdsOf` is the table's way from selected tracks to their
- * Library tracks, for what is asked of Library tracks (the look-up); it
- * answers only for rows the table has loaded, and a track outside the Library
- * has none.
+ * beside one.
  */
 export const useSelectedTrack = create<{
   row: TableRow | null;
   ids: readonly number[];
   tables: number;
-  libraryIdsOf: ((recordingIds: readonly number[]) => LibraryTrackId[]) | null;
-  setLibraryIdsOf: (resolve: ((recordingIds: readonly number[]) => LibraryTrackId[]) | null) => void;
   select: (row: TableRow | null) => void;
   selectIds: (ids: readonly number[]) => void;
   tableMounted: () => void;
@@ -28,12 +23,10 @@ export const useSelectedTrack = create<{
   row: null,
   ids: [],
   tables: 0,
-  libraryIdsOf: null,
-  setLibraryIdsOf: (libraryIdsOf) => set({ libraryIdsOf }),
   select: (row) => set({ row }),
   selectIds: (ids) => set({ ids }),
   tableMounted: () => set((state) => ({ tables: state.tables + 1 })),
-  tableUnmounted: () => set((state) => ({ tables: Math.max(0, state.tables - 1), row: null, ids: [], libraryIdsOf: null })),
+  tableUnmounted: () => set((state) => ({ tables: Math.max(0, state.tables - 1), row: null, ids: [] })),
 }));
 
 /** Whether a track table is on screen, so the Details panel has a track to show. */

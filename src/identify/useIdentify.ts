@@ -3,6 +3,7 @@ import { unwrap } from "../api/errors";
 import { reloadLists } from "../app/lists";
 import {
   commands,
+  type CoverAnswer,
   type IdentifyChoice,
   type IdentifyLookupStatus,
   type IdentifySuggestions,
@@ -19,6 +20,10 @@ import { useOnlineServicesStatus } from "../settings/useOnlineServices";
  * (only the Look up panel shows it), so a change invalidates it directly.
  */
 export const IDENTIFY_QUERY_KEY = ["identify"] as const;
+
+/** The service names the backend puts on an online source (`identify::lookup`). */
+export const MUSICBRAINZ_SERVICE = "MusicBrainz";
+export const DISCOGS_SERVICE = "Discogs";
 
 /** The suggestions for a Library track. Offline ones are there with every service off. */
 export function useIdentifySuggestions(libraryTrackId: LibraryTrackId) {
@@ -57,15 +62,56 @@ export function useUseSuggestions() {
 }
 
 /**
- * Asks for the online look-up of Library tracks, in the background. Answers
- * the job, or none when no track has a linked file. The status is asked for
- * again at once (it now says queued); the end of the job asks again.
+ * Asks for the online look-up of the selected tracks (a table row's
+ * `recordingId`), in the background. The backend finds their Library tracks and
+ * files, so a selection of any size is complete, rows not loaded included.
+ * Answers the job, or none when no track has a linked file. The status is
+ * asked for again at once (it now says queued); the end of the job asks again.
+ */
+export function useLookUpRecordings() {
+  const queryClient = useQueryClient();
+  return useMutation<number | null, Error, number[]>({
+    mutationFn: (recordings) => unwrap(commands.identifyLookUpRecordings(recordings)),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: IDENTIFY_QUERY_KEY }),
+  });
+}
+
+/**
+ * Asks for the online look-up of one Library track, in the background. Answers
+ * the job, or none when the track has no linked file.
  */
 export function useLookUpTracks() {
   const queryClient = useQueryClient();
   return useMutation<number | null, Error, LibraryTrackId[]>({
     mutationFn: (libraryTrackIds) => unwrap(commands.identifyLookUpTracks(libraryTrackIds)),
     onSettled: () => queryClient.invalidateQueries({ queryKey: IDENTIFY_QUERY_KEY }),
+  });
+}
+
+/**
+ * The releases a track's kept look-up has, best first (no request is made).
+ * Only asked while `enabled` (Cover Art is on).
+ */
+export function useCoverReleases(libraryTrackId: LibraryTrackId, enabled: boolean) {
+  return useQuery({
+    queryKey: [...IDENTIFY_QUERY_KEY, "coverReleases", libraryTrackId],
+    queryFn: (): Promise<string[]> => unwrap(commands.identifyCoverReleases(libraryTrackId)),
+    enabled,
+  });
+}
+
+/**
+ * The front cover of a release, as the command answers it. Kept for the
+ * session: the picture of a release doesn't change, so a finished look-up
+ * doesn't fetch it again (the key is outside `IDENTIFY_QUERY_KEY`).
+ */
+export function useCover(releaseMbid: string | undefined) {
+  return useQuery({
+    queryKey: ["identifyCover", releaseMbid],
+    queryFn: (): Promise<CoverAnswer> => unwrap(commands.identifyCover(releaseMbid ?? "")),
+    enabled: releaseMbid !== undefined,
+    staleTime: Infinity,
+    retry: false,
   });
 }
 

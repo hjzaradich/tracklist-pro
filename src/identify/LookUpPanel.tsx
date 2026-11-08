@@ -12,12 +12,18 @@ import type {
   TableRow,
 } from "../bindings";
 import { useRegisterActions } from "../palette/registry";
+import { useOnlineServicesStatus } from "../settings/useOnlineServices";
 import { useSelectedTrack } from "../shell/selectedTrack";
 import { useWhenUndone } from "../shell/undoneStore";
 import styles from "./LookUpPanel.module.css";
 import {
+  DISCOGS_SERVICE,
   IDENTIFY_QUERY_KEY,
+  MUSICBRAINZ_SERVICE,
   useIdentifySuggestions,
+  useCover,
+  useCoverReleases,
+  useLookUpRecordings,
   useLookUpTracks,
   useLookupStatus,
   useOnlineLookupAvailable,
@@ -72,9 +78,10 @@ function Panel({ libraryTrackId }: { libraryTrackId: number }) {
   const status = useLookupStatus(libraryTrackId);
   const available = useOnlineLookupAvailable();
   const lookUp = useLookUpTracks();
+  const lookUpSelected = useLookUpRecordings();
   const use = useUseSuggestions();
   const selected = useSelectedTrack((state) => state.ids);
-  const [asked, setAsked] = useState<{ selected: number; sent: number; queued: boolean } | null>(null);
+  const [asked, setAsked] = useState<{ count: number; queued: boolean } | null>(null);
   const [used, setUsed] = useState<{ count: number; changed: boolean } | null>(null);
 
   // A finished look-up, and an Undo of a Use, change what is suggested.
@@ -89,17 +96,15 @@ function Panel({ libraryTrackId }: { libraryTrackId: number }) {
   const off = available === false;
   const waiting = status.data?.state === "queued" || status.data?.state === "running";
 
-  const ask = (ids: number[], count: number) => {
+  const askOne = () => {
     setAsked(null);
-    lookUp.mutate(ids, {
-      onSuccess: (job) => setAsked({ selected: count, sent: ids.length, queued: job !== null }),
-    });
+    lookUp.mutate([libraryTrackId], { onSuccess: (job) => setAsked({ count: 1, queued: job !== null }) });
   };
-  const askOne = () => ask([libraryTrackId], 1);
+  // The selected tracks go as they are: the backend finds their Library tracks.
   const askSelected = () => {
-    const ids = useSelectedTrack.getState().libraryIdsOf?.(selected) ?? [];
-    if (ids.length === 0) setAsked({ selected: selected.length, sent: 0, queued: false });
-    else ask(ids, selected.length);
+    const count = selected.length;
+    setAsked(null);
+    lookUpSelected.mutate([...selected], { onSuccess: (job) => setAsked({ count, queued: job !== null }) });
   };
 
   useRegisterActions("identify", [
@@ -125,7 +130,7 @@ function Panel({ libraryTrackId }: { libraryTrackId: number }) {
   };
 
   const shown = suggestions.data === undefined ? [] : fieldsWithSuggestions(suggestions.data);
-  const errors = [suggestions.error, status.error, lookUp.error, use.error].filter((error) => error != null);
+  const errors = [suggestions.error, status.error, lookUp.error, lookUpSelected.error, use.error].filter((error) => error != null);
   return (
     <section aria-labelledby={headingId} className={styles.section}>
       <h3 id={headingId} ref={heading} tabIndex={-1} className={styles.heading}>
@@ -154,7 +159,7 @@ function Panel({ libraryTrackId }: { libraryTrackId: number }) {
           <button
             type="button"
             className={styles.button}
-            disabled={off || lookUp.isPending}
+            disabled={off || lookUpSelected.isPending}
             aria-describedby={off ? offId : undefined}
             onClick={askSelected}
           >
@@ -172,6 +177,7 @@ function Panel({ libraryTrackId }: { libraryTrackId: number }) {
           {askedLine(asked, t)}
         </p>
       )}
+      <Cover libraryTrackId={libraryTrackId} album={albumName(suggestions.data)} />
       {suggestions.isPending && <p className={styles.quiet}>{t("lookUp.loading")}</p>}
       {suggestions.data !== undefined && shown.length === 0 && <p className={styles.quiet}>{t("lookUp.nothing")}</p>}
       {shown.length > 0 && (
@@ -186,6 +192,7 @@ function Panel({ libraryTrackId }: { libraryTrackId: number }) {
               />
             ))}
           </dl>
+          {shownSources(shown).some(isDiscogs) && <p className={styles.quiet}>{t("lookUp.discogsCredit")}</p>}
           {shown.some((field) => field.field === "CatalogueNumber") && (
             <p className={styles.quiet}>{t("lookUp.catalogueNote")}</p>
           )}
@@ -214,6 +221,51 @@ function Panel({ libraryTrackId }: { libraryTrackId: number }) {
         </p>
       ))}
     </section>
+  );
+}
+
+/** Every source of the suggestions shown. */
+function shownSources(shown: IdentifyFieldSuggestions[]): IdentifySource[] {
+  return shown.flatMap((field) => field.suggestions.flatMap((suggestion) => suggestion.sources));
+}
+
+const isDiscogs = (source: IdentifySource) => source.kind === "online" && source.service === DISCOGS_SERVICE;
+
+/** The album the track has or is suggested, to name its cover. */
+function albumName(data: IdentifySuggestions | undefined): string | null {
+  const album = data?.fields.find((field) => field.field === "Album");
+  const name = album?.current || album?.suggestions[0]?.value;
+  return name ? name : null;
+}
+
+/** The picture types a `data:` address may carry here: anything else is not drawn. */
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
+/**
+ * The front cover of the track's first release, once Cover Art is on and the
+ * kept look-up has a release. Drawn only from what the command returns (a
+ * `data:` address), never from a web address. Nothing shows while Cover Art is
+ * off or when the archive has no cover; a failure says so in a few words.
+ */
+function Cover({ libraryTrackId, album }: { libraryTrackId: number; album: string | null }) {
+  const { t } = useTranslation("identify");
+  const on = useOnlineServicesStatus().data?.coverArt === true;
+  const releases = useCoverReleases(libraryTrackId, on);
+  const first = on ? releases.data?.[0] : undefined;
+  const cover = useCover(first);
+  if (first === undefined) return null;
+  if (cover.isPending) return <p className={styles.quiet}>{t("lookUp.cover.loading")}</p>;
+  const answer = cover.data;
+  if (cover.isError || answer?.kind === "failed") return <p className={styles.quiet}>{t("lookUp.cover.none")}</p>;
+  if (answer?.kind !== "image" || !IMAGE_TYPES.includes(answer.mime)) return null;
+  return (
+    <img
+      className={styles.cover}
+      src={`data:${answer.mime};base64,${answer.data}`}
+      alt={album === null ? t("lookUp.cover.alt") : t("lookUp.cover.altAlbum", { album })}
+      width={96}
+      height={96}
+    />
   );
 }
 
@@ -278,9 +330,13 @@ function sourceText(source: IdentifySource, t: T): string {
     case "sibling":
       return t("lookUp.source.sibling");
     case "online":
-      return source.via === null || source.via === ""
-        ? t("lookUp.source.online", { service: source.service })
-        : t("lookUp.source.onlineVia", { service: source.service, via: source.via });
+      if (source.via !== null && source.via !== "") {
+        return t("lookUp.source.onlineVia", { service: source.service, via: source.via });
+      }
+      // MusicBrainz with no service leading to it is the search by name.
+      return source.service === MUSICBRAINZ_SERVICE
+        ? t("lookUp.source.nameSearch", { service: source.service })
+        : t("lookUp.source.online", { service: source.service });
     default:
       // A source this build doesn't know: say what the data says.
       return t("lookUp.source.other", { kind: (source as { kind: string }).kind });
@@ -335,10 +391,6 @@ function whenText(when: string): string {
   return Number.isNaN(date.getTime()) ? when : date.toLocaleString();
 }
 
-function askedLine(asked: { selected: number; sent: number; queued: boolean }, t: T): string {
-  if (!asked.queued) return t("lookUp.asked.none");
-  const left = asked.selected - asked.sent;
-  return left > 0
-    ? t("lookUp.asked.someLeftOut", { count: asked.sent, left })
-    : t("lookUp.asked.queued", { count: asked.sent });
+function askedLine(asked: { count: number; queued: boolean }, t: T): string {
+  return asked.queued ? t("lookUp.asked.queued", { count: asked.count }) : t("lookUp.asked.none");
 }

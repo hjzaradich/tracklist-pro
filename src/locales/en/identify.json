@@ -48,7 +48,6 @@
     "asked": {
       "queued_one": "Looking up {{count}} track in the background",
       "queued_other": "Looking up {{count}} tracks in the background",
-      "someLeftOut": "Looking up {{count}} in the background; {{left}} left out (not in the Library, or not loaded in the list yet)",
       "none": "None of those has a file in the Library to look up"
     },
     "field": {
@@ -68,6 +67,7 @@
       "fileName": "from the file name",
       "sibling": "from another file of this track",
       "online": "{{service}}",
+      "nameSearch": "{{service}} (name search)",
       "onlineVia": "{{service}} via {{via}}",
       "other": "from {{kind}}"
     },
@@ -78,6 +78,13 @@
     "used_one": "Used {{count}} suggestion",
     "used_other": "Used {{count}} suggestions",
     "usedNothing": "Nothing changed: the track already has that",
+    "discogsCredit": "Data provided by Discogs",
+    "cover": {
+      "loading": "Looking for the cover...",
+      "none": "No cover found",
+      "alt": "Front cover of the track's first release",
+      "altAlbum": "Front cover of {{album}}"
+    },
     "catalogueNote": "The app keeps the catalogue number. It isn't sent to rekordbox."
   }
 }
