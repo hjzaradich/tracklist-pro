@@ -9,7 +9,8 @@
 - **Source weights:** `model.safetensors` of that revision, 22028820 bytes, sha256 `0e086f0cd62814c6def89001f3f25193f75955696f6975ef6800af31d00d6dd7`.
 - **Original code:** https://github.com/RicherMans/CED
 - **Paper:** Heinrich Dinkel, Yongqing Wang, Zhiyong Yan, Junbo Zhang and Yujun Wang, "CED: Consistent ensemble distillation for audio tagging", ICASSP 2024 (https://arxiv.org/abs/2308.11957).
-- **Training data:** the model was trained on AudioSet (Google). Its 527 label names (`labels.json`, in output order) are the AudioSet ontology's display names; the ontology is licensed CC BY-SA 4.0 (https://research.google.com/audioset/).
+- **Training data:** the model was trained on AudioSet (Google).
+- **labels.json:** the 527 AudioSet display names, Copyright Google, under the Creative Commons Attribution-ShareAlike 4.0 licence (CC BY-SA 4.0, https://creativecommons.org/licenses/by-sa/4.0/). Source: the AudioSet ontology (https://research.google.com/audioset/). We took the names from the CED-tiny model's `config.json` (`id2label`), which derives from the ontology, and kept their order (the model's output order). Changes: none to the names; only the format (a JSON list). This file is under CC BY-SA 4.0; the rest of this folder is under the licences stated above.
 
 ## What we changed
 
