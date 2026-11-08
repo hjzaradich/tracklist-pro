@@ -35,6 +35,10 @@
     "purpose": "Heading of the list of Library tracks the audio model hears as close to the selected one.",
     "where": "Audio model section."
   },
+  "similar.track": {
+    "purpose": "A track in the Sounds like list: its artist and title.",
+    "where": "Audio model section, each Sounds like track."
+  },
   "similar.percent": {
     "purpose": "How close a track sounds to the selected one, in percent.",
     "where": "Audio model section, beside each Sounds like track."

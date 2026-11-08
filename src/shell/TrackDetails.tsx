@@ -142,7 +142,7 @@ export function TrackDetails({ row }: { row: TableRow }) {
       <TrackCrates row={row} />
       <TrackTags row={row} />
       <WhatsNext row={row} />
-      <AudioModelPanel row={row} />
+      <AudioModelPanel key={row.recordingId} row={row} />
       {entry !== null && (
         <div className={styles.confirmed}>
           <p className={styles.quiet}>{t("details.withdraw.confirmed")}</p>

@@ -9,6 +9,7 @@
   "noMood": "No mood guess",
   "similar": {
     "title": "Sounds like",
+    "track": "{{artist}} - {{title}}",
     "percent": "{{percent}}%",
     "empty": "No similar tracks yet"
   },

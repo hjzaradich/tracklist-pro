@@ -29,11 +29,13 @@ let similar: SoundsLike;
 let asked: string[];
 
 function renderPanel() {
+  const client = createQueryClient();
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={client}>
       <AudioModelPanel row={TRACK} />
     </QueryClientProvider>,
   );
+  return client;
 }
 
 beforeEach(() => {
@@ -65,8 +67,9 @@ afterEach(() => {
 describe("AudioModelPanel", () => {
   it("is hidden while the switch is off, and asks for nothing but the switch", async () => {
     status = { ...STATUS, enabled: false };
-    renderPanel();
-    await waitFor(() => expect(asked).toContain("audio_model_status"));
+    const client = renderPanel();
+    // Wait for the switch's answer to arrive, so a panel wrongly shown would be on screen by now.
+    await waitFor(() => expect(client.getQueryData(["audioModel", "status"])).toBeDefined());
     expect(screen.queryByRole("heading", { name: tx("audioModel:title") })).toBeNull();
     expect(asked).toEqual(["audio_model_status"]);
   });
@@ -135,7 +138,7 @@ describe("AudioModelPanel", () => {
     const list = await screen.findByRole("list", { name: tx("audioModel:similar.title") });
     const items = within(list).getAllByRole("listitem");
     expect(items).toHaveLength(2);
-    expect(items[0]).toHaveTextContent("Made Up Artist 2 - Synthetic Tune 2");
+    expect(items[0]).toHaveTextContent(tx("audioModel:similar.track", { artist: "Made Up Artist 2", title: "Synthetic Tune 2" }));
     expect(items[0]).toHaveTextContent(tx("audioModel:similar.percent", { percent: 91 }));
     expect(items[1]).toHaveTextContent("Synthetic Tune 3");
   });

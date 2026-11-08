@@ -114,7 +114,9 @@ function SoundsLike({ row }: { row: TableRow }) {
               <li key={result.recordingId}>
                 <button type="button" className={styles.track} onClick={() => select(result)}>
                   <span className={styles.trackName}>
-                    {[result.artist, result.title].filter((part) => part !== null && part !== "").join(" - ")}
+                    {result.artist !== null && result.artist !== "" && result.title !== null && result.title !== ""
+                      ? t("similar.track", { artist: result.artist, title: result.title })
+                      : (result.title ?? result.artist)}
                   </span>
                   <span className={styles.percent}>{t("similar.percent", { percent })}</span>
                 </button>
