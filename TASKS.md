@@ -99,12 +99,13 @@ In [TASKS-archive.md](TASKS-archive.md).
   - ✅ A3 (PR 221; owner 2026-11-08: its own panel headed "Audio model") "Sounds like" and genre suggestions, labelled as the audio model's opinion, and the Settings switch.
 - **Follow-ups:** ✅ F (PR 218; Fable review + fix-check: leftover pieces of an earlier failed swap are set aside as `-stray`, never folded over a Library that moved on) the bundle's stale set-aside folder skipping the fold before a swap; a second failure overwriting the earlier `.stray` copy; the update check: a test that the question closes before the check finishes, Semver equality agreeing with its order.
 
-### Run 5B (owner 2026-11-08: "go for 5B first then build the installer afterwards", budget about 15 weekly points, started at 43%, stop by about 60%)
+### Run 5B ✅ (owner 2026-11-08: "go for 5B first then build the installer afterwards", budget about 15 weekly points, started at 43%; PRs 222-225)
 - **3.8 part 2, using the audio model** (owner decisions 2026-11-08 in ROADMAP 3.8):
   - ✅ B1 (PR 224; Fable review 7/7 mutations + fix-check) "Use" on a generic genre guess in the Audio model panel: sets the track's genre as an ordinary genre edit (one Undo; sent like any edit; an unknown name goes to Review's Unmapped genres).
   - ✅ B2 (PR 222; Sonnet review, 5/5 mutations) "sounds similar" as a What's next signal (default weight 1 while the audio model is on; never the only reason; listed as not used while the model is off or the track has no fingerprint).
   - ✅ B3a (PR 223; Sonnet review, 5/6 mutations, gaps closed) your own genre model, backend: a small model learned from the fingerprints of tracks you've given a genre (genres only; at least 10 tracks per genre), re-learned automatically after fingerprinting and when genres change; migration 0056.
-  - B3b "Your genres" in the Audio model panel, with "Use" (after B1 and B3a).
+  - ✅ B3b (PR 225; light review) "Your genres" in the Audio model panel, with "Use" (after B1 and B3a).
+- **Follow-ups:** the panel's "Genre set to …" line can stay when switching tracks (the panel isn't keyed per track); the What's next reason percent can differ by 1 from the panel's (f32 vs f64); "Your genres" empty line can't say why (needs a reason in the reply); generic AudioSet names ("House music") need an alias to map to a tree node.
 - Then installer 0.1.10 (owner asked: after 5B).
 
 ### Stage 1cE: Go public 👤
