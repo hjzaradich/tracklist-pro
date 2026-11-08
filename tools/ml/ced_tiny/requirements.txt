@@ -1,0 +1,17 @@
+# Exact versions the checked-in ced-tiny.onnx and the golden fixtures were built with
+# (Python 3.12, Windows). Install into a fresh virtual environment:
+#   python -m venv venv && venv/Scripts/python -m pip install -r requirements.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.15.0+cpu
+torchaudio==2.11.1+cpu
+transformers==5.22.2
+huggingface_hub==2.4.0
+safetensors==0.8.0
+tokenizers==0.23.3
+onnx==1.23.2
+onnxruntime==1.31.1
+protobuf==7.36.2
+numpy==2.5.4
+# golden.py only: the 44.1 kHz to 16 kHz resampler (the one librosa 1.0.0 uses by default) and a sensitivity check
+soxr==1.1.0
+scipy==1.18.1

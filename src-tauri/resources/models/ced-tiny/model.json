@@ -1,0 +1,6 @@
+{
+  "name": "CED-tiny (audio model)",
+  "version": "ace276d",
+  "license": "Apache-2.0",
+  "repository": "https://huggingface.co/mispeech/ced-tiny"
+}
