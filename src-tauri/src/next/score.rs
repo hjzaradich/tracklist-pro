@@ -24,6 +24,19 @@
 //! both have, against the chosen track's own (at most three): sharing all of
 //! up to three is a full fit. None on the chosen track leaves it unused.
 //! Neither says anything when it counts for nothing.
+//!
+//! **Sounds similar** (3.8). The audio model's opinion of how alike the two
+//! sound: the cosine of the two fingerprints after the Library's average
+//! fingerprint is taken off (the number "Sounds like" shows), with a negative
+//! cosine counting as 0, so the fitness is `max(cosine, 0)` from 0 to 1 and
+//! its reason says that as a whole percent. It is unused (and said so) when
+//! its weight is above 0 but the model is off or the chosen track has no
+//! current fingerprint; a candidate without one just gets no similarity part.
+//! **Never the only reason:** a candidate's similarity part exists only if
+//! at least one of its fact parts (key, BPM, energy, played, genre, tags) is
+//! above 0. A candidate that sounds alike and has nothing else in common is
+//! therefore scored and shown exactly as if there were no similarity signal,
+//! and the reason is never shown without a fact reason beside it.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -32,6 +45,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use super::{Direction, Settings, Signal, Tolerance, Weights, MOST_WEIGHT};
+use crate::audio_model::similar::{likeness_of, Resemblance};
 use crate::crates::fit::{tempo_gap, Camelot, TimeFeel, TEMPO_STEPS};
 
 /// The most reasons a result carries.
@@ -119,6 +133,9 @@ pub enum ReasonCode {
     GenreRelated,
     /// `tags` in common (`count` of them).
     TagsShared,
+    /// The audio model hears the two as `percent` alike. Always shown as the
+    /// audio model's opinion, and never without a fact reason beside it.
+    Similar,
 }
 
 /// One reason a candidate ranks where it does, as data for the screen to
@@ -138,6 +155,8 @@ pub struct Reason {
     pub count: Option<u32>,
     /// The tags in common, for `TagsShared`.
     pub tags: Option<Vec<String>>,
+    /// How alike the two sound, 0 to 100, for `Similar`.
+    pub percent: Option<u8>,
 }
 
 impl Reason {
@@ -151,13 +170,14 @@ impl Reason {
             step: None,
             count: None,
             tags: None,
+            percent: None,
         }
     }
 }
 
-/// A signal beyond the six built in, to be weighed with them (a hook for a
-/// later one, such as the audio model's similarity, 3.8). Genre and tags are
-/// built in, because they are reported as not used and need a weight setting.
+/// A signal beyond the built-in ones, to be weighed with them (a hook for a
+/// later one). Genre, tags and the audio model's similarity are built in,
+/// because they are reported as not used and need a weight setting.
 pub trait ExtraSignal {
     /// How the candidate fits the chosen track on this signal, or `None`
     /// when it does not apply to the pair.
@@ -184,6 +204,8 @@ pub struct Ask<'a> {
     pub played_after: &'a HashMap<i64, u32>,
     pub extras: &'a [&'a dyn ExtraSignal],
     pub vocab: &'a Vocab,
+    /// How each track sounds against the chosen one.
+    pub resemblance: &'a Resemblance,
 }
 
 /// A ranked candidate.
@@ -286,17 +308,19 @@ struct Part {
 }
 
 /// Which signals apply, from the chosen track and the settings.
-struct Plan {
+struct Plan<'a> {
     key: Option<Camelot>,
     bpm: Option<f64>,
     energy: Option<u8>,
     played: bool,
     genre: Option<GenreRef>,
     tags: bool,
+    /// The cosines, when sounds similar counts.
+    similar: Option<&'a HashMap<i64, f32>>,
     ignored: Vec<Signal>,
 }
 
-fn plan(ask: &Ask) -> Plan {
+fn plan<'a>(ask: &'a Ask) -> Plan<'a> {
     let w = &ask.settings.weights;
     let mut ignored = Vec::new();
     let mut want = |signal: Signal, weight: u8, has: bool| {
@@ -329,6 +353,14 @@ fn plan(ask: &Ask) -> Plan {
     } else {
         true
     };
+    let similar = match (w.similar, ask.resemblance) {
+        (0, _) | (_, Resemblance::NotWeighed) => None,
+        (_, Resemblance::To(cosines)) => Some(cosines),
+        (_, Resemblance::ModelOff | Resemblance::NoFingerprint) => {
+            ignored.push(Signal::Similar);
+            None
+        }
+    };
     Plan {
         key,
         bpm,
@@ -336,6 +368,7 @@ fn plan(ask: &Ask) -> Plan {
         played,
         genre,
         tags,
+        similar,
         ignored,
     }
 }
@@ -402,7 +435,7 @@ fn tags_part(ask: &Ask, c: &Candidate, names: bool) -> Part {
 
 /// The parts for one candidate. `names` says whether the reason text fields
 /// (the key names) are filled; the order needs only the fitness.
-fn parts(ask: &Ask, plan: &Plan, c: &Candidate, names: bool) -> Vec<Part> {
+fn parts(ask: &Ask, plan: &Plan<'_>, c: &Candidate, names: bool) -> Vec<Part> {
     let w: &Weights = &ask.settings.weights;
     let tolerance = ask.settings.tolerance;
     let mut out = Vec::with_capacity(6);
@@ -511,6 +544,21 @@ fn parts(ask: &Ask, plan: &Plan, c: &Candidate, names: bool) -> Vec<Part> {
     if plan.tags {
         out.push(tags_part(ask, c, names));
     }
+    if let Some(cosines) = plan.similar {
+        // Never the only reason: only beside a fact that counts for something.
+        let beside_a_fact = out.iter().any(|p| p.weight > 0 && p.fitness > 0.0);
+        if let (true, Some(&cosine)) = (beside_a_fact, cosines.get(&c.id)) {
+            let fitness = f64::from(likeness_of(cosine));
+            let mut reason = Reason::new(ReasonCode::Similar, fitness);
+            reason.percent = Some((fitness * 100.0).round() as u8);
+            out.push(Part {
+                signal: Some(Signal::Similar),
+                weight: w.similar,
+                fitness,
+                reason,
+            });
+        }
+    }
     for extra in ask.extras {
         if let Some(p) = extra.part(ask.target_id, c.id) {
             // A bad extra is "not used": NaN or a fitness outside 0..=1 is
@@ -530,7 +578,7 @@ fn parts(ask: &Ask, plan: &Plan, c: &Candidate, names: bool) -> Vec<Part> {
 }
 
 /// Whether the candidate goes last for lacking energy.
-fn lacks_energy(plan: &Plan, c: &Candidate) -> bool {
+fn lacks_energy(plan: &Plan<'_>, c: &Candidate) -> bool {
     plan.energy.is_some() && c.facts.energy.is_none()
 }
 
@@ -549,7 +597,7 @@ fn score_of(parts: &[Part]) -> f64 {
 /// The reasons to show: energy missing first, then by contribution; what
 /// counted for nothing (nothing played, no genre or tag in common) is never a
 /// reason.
-fn reasons_of(plan: &Plan, c: &Candidate, parts: Vec<Part>) -> Vec<Reason> {
+fn reasons_of(plan: &Plan<'_>, c: &Candidate, parts: Vec<Part>) -> Vec<Reason> {
     let mut out = Vec::with_capacity(MOST_REASONS);
     if lacks_energy(plan, c) {
         out.push(Reason::new(ReasonCode::EnergyNone, 0.0));
@@ -558,7 +606,7 @@ fn reasons_of(plan: &Plan, c: &Candidate, parts: Vec<Part>) -> Vec<Reason> {
         .into_iter()
         .filter(|p| match p.signal {
             Some(Signal::Played) => p.reason.count.is_some(),
-            Some(Signal::Genre | Signal::Tags) => p.fitness > 0.0,
+            Some(Signal::Genre | Signal::Tags | Signal::Similar) => p.fitness > 0.0,
             _ => true,
         })
         .collect();
@@ -566,11 +614,22 @@ fn reasons_of(plan: &Plan, c: &Candidate, parts: Vec<Part>) -> Vec<Reason> {
     rest.sort_by(|a, b| {
         (f64::from(b.weight) * b.fitness).total_cmp(&(f64::from(a.weight) * a.fitness))
     });
-    out.extend(
-        rest.into_iter()
-            .map(|p| p.reason)
-            .take(MOST_REASONS.saturating_sub(out.len())),
-    );
+    let room = MOST_REASONS.saturating_sub(out.len());
+    // A fact that counts for something must be among the reasons beside the
+    // audio model's: if the best few are all other kinds, it takes the last
+    // place (an extra signal could crowd it out).
+    let is_fact = |p: &Part| p.fitness > 0.0 && matches!(p.signal, Some(s) if s != Signal::Similar);
+    if room > 0 && room < rest.len() && !rest[..room].iter().any(is_fact) {
+        if let Some(at) = rest.iter().position(is_fact) {
+            rest.swap(room - 1, at);
+        }
+    }
+    rest.truncate(room);
+    if !rest.iter().any(is_fact) {
+        // No fact to stand beside it: the audio model's opinion is left out.
+        rest.retain(|p| p.signal != Some(Signal::Similar));
+    }
+    out.extend(rest.into_iter().map(|p| p.reason));
     out
 }
 

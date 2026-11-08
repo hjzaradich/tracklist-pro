@@ -9,7 +9,7 @@ import styles from "./WhatsNext.module.css";
 
 const DIRECTIONS: readonly Direction[] = ["up", "same", "down"];
 const TOLERANCES: readonly Tolerance[] = ["tight", "wide"];
-const WEIGHTS: readonly (keyof NextWeights)[] = ["key", "bpm", "energy", "played", "genre", "tags"];
+const WEIGHTS: readonly (keyof NextWeights)[] = ["key", "bpm", "energy", "played", "genre", "tags", "similar"];
 const MOST_WEIGHT = 10;
 
 /** The weights and the tolerance, shown and changeable; a change applies at once and is not an operation. */
@@ -86,6 +86,9 @@ export function WhatsNext({ row }: { row: TableRow }) {
   const next = useNext(row.recordingId, direction);
   const headingId = useId();
   const name = useId();
+  // "Sounds similar" says why it is not used on its own line (the audio model
+  // being off is not something this track lacks).
+  const lacking = (next.data?.ignored ?? []).filter((signal: Signal) => signal !== "similar");
 
   return (
     <section aria-labelledby={headingId} className={styles.section}>
@@ -130,13 +133,14 @@ export function WhatsNext({ row }: { row: TableRow }) {
               ))}
             </ol>
           )}
-          {next.data.ignored.length > 0 && (
+          {lacking.length > 0 && (
             <p className={styles.quiet}>
               {t("ignored.label", {
-                signals: next.data.ignored.map((signal: Signal) => t(`signal.${signal}`)).join(t("ignored.separator")),
+                signals: lacking.map((signal) => t(`signal.${signal}`)).join(t("ignored.separator")),
               })}
             </p>
           )}
+          {next.data.similarGap !== null && <p className={styles.quiet}>{t(`ignored.similar.${next.data.similarGap}`)}</p>}
           <p className={styles.quiet}>{t("considered", { count: next.data.considered })}</p>
         </>
       )}

@@ -8,6 +8,7 @@ use super::score::{
     rank, Ask, Candidate, Facts, GenreRef, Ranking, Reason, ReasonCode, Scored, Vocab,
 };
 use super::*;
+use crate::audio_model::similar::Resemblance;
 use crate::search::tests::support::Lib;
 
 // ---- the scoring ---------------------------------------------------------------
@@ -19,6 +20,7 @@ const NO_WEIGHTS: Weights = Weights {
     played: 0,
     genre: 0,
     tags: 0,
+    similar: 0,
 };
 
 fn settings(weights: Weights) -> Settings {
@@ -64,6 +66,7 @@ fn run(target: Facts, vocab: &Vocab, weights: Weights, candidates: &[Candidate])
         played_after: &HashMap::new(),
         extras: &[],
         vocab,
+        resemblance: &Resemblance::NotWeighed,
     };
     rank(&ask, candidates, SHOWN)
 }
@@ -513,14 +516,19 @@ fn the_default_ranking_for_a_library_with_genres_but_no_tags_is_the_old_one() {
             .unwrap();
     }
     let target = ids[0];
-    let now = rank_db(&lib, target, Weights::default());
+    // The audio model is off, where sounds similar defaults to 0.
+    let off = Weights {
+        similar: 0,
+        ..Weights::default()
+    };
+    let now = rank_db(&lib, target, off);
     let before = rank_db(
         &lib,
         target,
         Weights {
             genre: 0,
             tags: 0,
-            ..Weights::default()
+            ..off
         },
     );
     assert_eq!(now.ranked, before.ranked);

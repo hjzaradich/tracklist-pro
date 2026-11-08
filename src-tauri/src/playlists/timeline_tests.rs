@@ -581,6 +581,7 @@ fn fill_gap_aims_at_the_target_energy_for_that_place() {
                     played: 0,
                     genre: 0,
                     tags: 0,
+                    similar: 0,
                 },
                 tolerance: Tolerance::Wide,
             },

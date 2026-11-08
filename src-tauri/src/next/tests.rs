@@ -7,9 +7,23 @@ use super::score::{
     rank, Ask, Candidate, ExtraPart, ExtraSignal, Facts, Reason, ReasonCode, Scored, Vocab,
 };
 use super::*;
+use crate::audio_model::similar::Resemblance;
 use crate::search::tests::support::{Lib, Mount};
 
 // ---- the scoring ---------------------------------------------------------------
+
+impl Settings {
+    /// The defaults while the audio model is off, as a new database has them.
+    pub(super) fn with_the_model_off(self) -> Settings {
+        Settings {
+            weights: Weights {
+                similar: 0,
+                ..self.weights
+            },
+            ..self
+        }
+    }
+}
 
 fn key(text: &str) -> Option<Camelot> {
     Some(Camelot::parse(text).unwrap())
@@ -46,6 +60,7 @@ fn run(
         played_after: played,
         extras: &[],
         vocab: &Vocab::default(),
+        resemblance: &Resemblance::NotWeighed,
     };
     rank(&ask, candidates, SHOWN)
 }
@@ -72,6 +87,7 @@ const KEY_ONLY: Weights = Weights {
     played: 0,
     genre: 0,
     tags: 0,
+    similar: 0,
 };
 
 #[test]
@@ -130,6 +146,7 @@ fn half_and_double_time_count_and_the_reason_says_which() {
         played: 0,
         genre: 0,
         tags: 0,
+        similar: 0,
     };
     let target = facts(Some(140.0), None, None);
     let all = [
@@ -163,6 +180,7 @@ fn a_tight_tempo_scores_as_sort_by_fit_does() {
         played: 0,
         genre: 0,
         tags: 0,
+        similar: 0,
     };
     let target = facts(Some(120.0), None, None);
     let all = [
@@ -192,6 +210,7 @@ fn the_energy_step_follows_the_direction() {
         played: 0,
         genre: 0,
         tags: 0,
+        similar: 0,
     };
     let target = facts(None, None, Some(5));
     let all = [
@@ -265,6 +284,7 @@ fn what_the_chosen_track_lacks_is_ignored_and_reported() {
         played: 0,
         genre: 0,
         tags: 0,
+        similar: 0,
     });
     assert!(run(target, Direction::Same, off, &HashMap::new(), &all)
         .ignored
@@ -287,6 +307,7 @@ fn played_transitions_lift_a_track_and_the_reason_counts_them() {
         played: 10,
         genre: 0,
         tags: 0,
+        similar: 0,
     });
     let r = run(target, Direction::Same, heavy, &played, &all);
     assert_eq!(ids(&r.results), [2, 1]);
@@ -310,6 +331,7 @@ fn wide_counts_keys_two_steps_away_and_bigger_tempo_gaps() {
         played: 0,
         genre: 0,
         tags: 0,
+        similar: 0,
     };
     let tight = run(
         target,
@@ -372,6 +394,7 @@ impl ExtraSignal for Always {
                 step: None,
                 count: Some(9),
                 tags: None,
+                percent: None,
             },
         })
     }
@@ -396,6 +419,7 @@ fn an_extra_signal_is_weighed_with_the_rest_and_can_give_a_reason() {
         played_after: &none,
         extras: &extras,
         vocab: &Vocab::default(),
+        resemblance: &Resemblance::NotWeighed,
     };
     let r = rank(&ask, &all, SHOWN);
     assert_eq!(r.results[0].id, 2);
@@ -433,7 +457,8 @@ fn call<T: Send + 'static>(
 fn settings_default_to_genre_neutral_weights_and_tight_and_read_back_what_was_stored() {
     let lib = Lib::new();
     let defaults = call(&lib, read_settings);
-    assert_eq!(defaults, Settings::default());
+    // The audio model is off, and sounds similar then defaults to 0.
+    assert_eq!(defaults, Settings::default().with_the_model_off());
     assert_eq!(defaults.tolerance, Tolerance::Tight);
     assert!(defaults.weights.key > 0 && defaults.weights.bpm > 0);
 
@@ -445,6 +470,7 @@ fn settings_default_to_genre_neutral_weights_and_tight_and_read_back_what_was_st
             played: 10,
             genre: 0,
             tags: 0,
+            similar: 0,
         },
         tolerance: Tolerance::Wide,
     };
@@ -497,7 +523,10 @@ fn a_stored_value_that_cannot_be_read_is_the_default_one_value_at_a_time() {
     assert_eq!(s.tolerance, Tolerance::Tight);
 
     lib.exec("UPDATE setting SET value = '[1, 2]' WHERE key = 'next_weights'");
-    assert_eq!(call(&lib, read_settings).weights, Weights::default());
+    assert_eq!(
+        call(&lib, read_settings),
+        Settings::default().with_the_model_off()
+    );
 }
 
 // ---- the query -----------------------------------------------------------------
@@ -600,6 +629,7 @@ fn the_library_is_ranked_from_the_index_and_the_plays_and_a_bad_row_stops_nothin
             played: 10,
             genre: 0,
             tags: 0,
+            similar: 0,
         },
         ..Settings::default()
     };
@@ -690,6 +720,7 @@ impl ExtraSignal for Odd {
                 step: None,
                 count: Some(1),
                 tags: None,
+                percent: None,
             },
         })
     }
@@ -713,6 +744,7 @@ fn with_extra(weight: u8, fitness: f64) -> score::Ranking {
         played_after: &none,
         extras: &extras,
         vocab: &Vocab::default(),
+        resemblance: &Resemblance::NotWeighed,
     };
     rank(&ask, &all, SHOWN)
 }

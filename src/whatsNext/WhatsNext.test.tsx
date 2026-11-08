@@ -12,10 +12,10 @@ import { quietAnswer } from "../test/quietCommands";
 import { tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 
-const SETTINGS: NextSettings = { weights: { key: 4, bpm: 4, energy: 2, played: 2, genre: 0, tags: 1 }, tolerance: "tight" };
+const SETTINGS: NextSettings = { weights: { key: 4, bpm: 4, energy: 2, played: 2, genre: 0, tags: 1, similar: 1 }, tolerance: "tight" };
 
 function reason(code: NextReason["code"], fields: Partial<NextReason> = {}): NextReason {
-  return { code, good: true, from: null, to: null, delta: null, step: null, count: null, tags: null, ...fields };
+  return { code, good: true, from: null, to: null, delta: null, step: null, count: null, tags: null, percent: null, ...fields };
 }
 
 let asked: { recordingId: number; direction: Direction }[];
@@ -44,6 +44,7 @@ beforeEach(() => {
     ],
     considered: 7,
     ignored: ["bpm"],
+    similarGap: null,
     settings: SETTINGS,
   };
   mockIPC((cmd, args) => {
@@ -187,6 +188,56 @@ describe("What's next in the Details panel", () => {
     fireEvent.change(tags, { target: { value: "0" } });
     await waitFor(() => expect(saved).toHaveLength(2));
     expect(saved[1]?.weights.tags).toBe(0);
+  });
+
+  it("words the audio model's reason with its percent", async () => {
+    reply = {
+      ...reply,
+      results: [
+        {
+          row: tableRow(2, { artist: "Made Up Artist 2", title: "Synthetic Tune 2" }),
+          score: 90,
+          reasons: [reason("keySame", { from: "8A" }), reason("similar", { percent: 82 })],
+        },
+      ],
+    };
+    renderPanel();
+    const next = within(await section());
+    expect(await next.findByText(tx("next:reason.similar", { percent: 82 }), { exact: false })).toBeInTheDocument();
+  });
+
+  it("says why sounds similar is not used, on its own line and not among what the track lacks", async () => {
+    reply = { ...reply, ignored: ["bpm", "similar"], similarGap: "modelOff" };
+    renderPanel();
+    const next = within(await section());
+    expect(await next.findByText(tx("next:ignored.similar.modelOff"))).toBeInTheDocument();
+    expect(next.getByText(tx("next:ignored.label", { signals: tx("next:signal.bpm") }))).toBeInTheDocument();
+    cleanup();
+
+    reply = { ...reply, ignored: ["similar"], similarGap: "noFingerprint" };
+    renderPanel();
+    const again = within(await section());
+    expect(await again.findByText(tx("next:ignored.similar.noFingerprint"))).toBeInTheDocument();
+    expect(again.queryByText((text) => text.startsWith(tx("next:ignored.label", { signals: "" })))).toBeNull();
+  });
+
+  it("says nothing about sounds similar when it is used", async () => {
+    renderPanel();
+    const next = within(await section());
+    await next.findAllByRole("listitem");
+    expect(next.queryByText(tx("next:ignored.similar.modelOff"))).toBeNull();
+    expect(next.queryByText(tx("next:ignored.similar.noFingerprint"))).toBeNull();
+  });
+
+  it("shows the sounds-similar weight and saves a change to it", async () => {
+    renderPanel();
+    const next = within(await section());
+    await userEvent.click(await next.findByText(tx("next:weights.title")));
+    const similar = next.getByLabelText(tx("next:weights.similar"));
+    expect(similar).toHaveValue(1);
+    fireEvent.change(similar, { target: { value: "6" } });
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]).toEqual({ ...SETTINGS, weights: { ...SETTINGS.weights, similar: 6 } });
   });
 
   it("does not save a weight outside 0 to 10", async () => {
