@@ -185,10 +185,20 @@ pub(super) fn finish(
         {
             return Err(BundleError::Blocked);
         }
-        // `swapping` there means a swap under way: its pieces may already
-        // be split, so the file isn't touched. (An empty one left by a crash
-        // just after it was made skips the fold too; the pieces then travel
-        // together, so nothing is lost.)
+        // A `swapping` folder without the Library's file in it is not a swap
+        // under way past its first piece: the file never left. Whatever
+        // an earlier stop left there (nothing, or pieces of this Library's
+        // set) comes home first, so the fold below sees the whole set and
+        // the folder is made fresh. With the file in it the swap is further
+        // on: the file isn't touched and the fold is skipped, the pieces
+        // travelling together.
+        if exists(&l.swapping) && !exists(&aside) {
+            step()?;
+            put_back(guard, l)?;
+            if ours(&l.swapping, |_| true).is_empty() {
+                remove(guard, &l.swapping)?;
+            }
+        }
         if !exists(&l.swapping) {
             fold(guard, &l.live);
         }
@@ -260,12 +270,26 @@ fn fold(guard: &WriteGuard, live: &Path) {
 /// When a move fails and the file isn't in place, the pieces already home
 /// would sit beside no file, where a different file moving in could meet
 /// them: they go back to `swapping` with their file. A piece that can't go
-/// back is renamed in place to `<piece>.stray`, a name SQLite never reads
-/// (never deleted: it may be the only copy of the log); if that fails too
+/// back is renamed in place to `<piece>.stray` (or the next free
+/// `.stray-2`...), a name SQLite never reads (never deleted or written over:
+/// it may be the only copy of the log); if that fails too
 /// it is logged and left. With the file in place, its own pieces
 /// stay: they are its set.
 fn put_back(guard: &WriteGuard, l: &Layout) -> Result<(), BundleError> {
     put_back_with(guard, l, &mut |from, to| Ok(guard.rename(from, to)?))
+}
+
+/// `<piece>.stray`, or the first of `.stray-2`, `.stray-3`... not taken: a
+/// kept copy is never written over (a rename onto a name replaces it).
+fn free_stray(piece_path: &Path) -> PathBuf {
+    let first = piece(piece_path, ".stray");
+    let mut n = 2;
+    let mut name = first.clone();
+    while exists(&name) {
+        name = piece(piece_path, &format!(".stray-{n}"));
+        n += 1;
+    }
+    name
 }
 
 /// [`put_back`], with the move open to tests (which make it fail).
@@ -285,7 +309,7 @@ pub(super) fn put_back_with(
                     for (from, to) in home.iter().rev() {
                         if mv(to, from).is_err() {
                             // Never deleted: it may be the only copy of the log.
-                            let stray = piece(to, ".stray");
+                            let stray = free_stray(to);
                             if let Err(e) = guard.rename(to, &stray) {
                                 eprintln!(
                                     "startup: a piece of the old Library stays beside no file: {e}"
