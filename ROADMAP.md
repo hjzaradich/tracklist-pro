@@ -631,6 +631,7 @@ Moved out of the MVP. Needs gate tests T2 and T4 (§7) first.
 - **A copy of a rekordbox-known track** is a new Location, which rekordbox treats as a new track. rekordbox's data, including cues and grid, is sent with it (1.9 rule 3, case B). The old rekordbox entry stays, and the app lists it for manual removal. How safely cues carry over, especially after a re-encode, is T2.
 - **Library copy tags:** complete, matching the XML exactly, in a fixed frame order, ID3v2.3, and including `TKEY` once rekordbox has reported the key (§5.1; T4 decides the details).
 - **Upgrades:** the copy is regenerated at the same path. Cues, grid and alignment survive a same-settings re-encode, **but only after Reload Tag** in rekordbox, so the app lists the affected tracks and walks the user through it.
+- **Cue alignment, per copy** (owner, 2026-11-08): converting can shift the audio by a few milliseconds (an MP3 encoder adds silence at the start), which would put cues and the grid slightly off. The audio fingerprint is too coarse for this (about 0.12 s steps), so the app measures each copy itself, right after making it: it lines up a few seconds of the copy's decoded audio against the original's and finds the shift to a fraction of a millisecond. If the measurement is confident, the cues and grid sent with the copy are moved by exactly that shift; if not (a damaged file, no clear match), that track is copied unchanged instead of converted. Cues are never deleted either way: the old rekordbox entry and its file stay until the user removes them. T2 decides first whether rekordbox already corrects for the encoder's added silence from the note the encoder writes into the file; if it does, the app must not shift as well.
 - **Durability:** a copy survives its original disappearing ("original file missing").
 - **Identity:** Library copies are identified by audio hash.
 - **Complexity:** M. **Reuse:** `plan.rs`, `execute.rs`, `vet.rs`, `policy.rs`, plus the Phase 2 ports (0.2).
@@ -788,7 +789,6 @@ Polish on top of the Phase 1 first run (1.3):
 | macOS release | Waits for a tester; CI keeps it building. Unsigned Mac apps are harder to install, so revisit the $0 decision then. |
 | Linux release | rekordbox doesn't run there. |
 | CLI / headless mode | The job system makes it cheap later. |
-| Cue alignment for re-encoded copies | Only if T2 (before 2.6) shows cues drift. It needs audio alignment for MP3 encoder delay. |
 | Disk cleanup report | Space freed by deleting extra files, leftover `.asd` files, empty and unreadable files. The app never deletes anything itself. |
 | Plugin / extension API | Waits until the core APIs are stable. |
 | Full history timeline UI | The operation log exists from day one. |
