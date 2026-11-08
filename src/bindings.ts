@@ -26,6 +26,13 @@ export const commands = {
 	 *  index, which the track table reads.
 	 */
 	setFeatureEnabled: (feature: Feature, on: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("set_feature_enabled", { feature, on })),
+	/**  Where the audio model stands: the switch and how many tracks are done. */
+	audioModelStatus: () => typedError<AudioModelStatus, IpcError>(__TAURI_INVOKE("audio_model_status")),
+	/**
+	 *  Turns the audio model on (queues the work) or off (cancels it, keeps
+	 *  what it made).
+	 */
+	setAudioModelEnabled: (on: boolean) => typedError<AudioModelStatus, IpcError>(__TAURI_INVOKE("set_audio_model_enabled", { on })),
 	/**  Where update checks stand. */
 	updateStatus: () => typedError<UpdateStatus, IpcError>(__TAURI_INVOKE("update_status")),
 	/**
@@ -974,6 +981,23 @@ export type AppInfo = {
 	identifier: string,
 };
 
+/**  Where the audio model stands, for the screen. */
+export type AudioModelStatus = {
+	/**  The switch. */
+	enabled: boolean,
+	/**  Library tracks' files with a result for their current audio. */
+	fingerprinted: number,
+	/**  Library tracks' files, in all. */
+	total: number,
+	/**
+	 *  Files the model couldn't listen to (not tried again until their audio
+	 *  changes).
+	 */
+	failed: number,
+	/**  An embed job is queued or running. */
+	running: boolean,
+};
+
 /**  A newer version, as the last check found it. */
 export type Available = {
 	version: string,
@@ -1776,7 +1800,13 @@ export type Feature =
  *  the owner's test switch (3.7, "Key"), until they reach the bar to be
  *  shown by default.
  */
-"localKey";
+"localKey" | 
+/**
+ *  The on-device audio model that listens to every Library track
+ *  (3.8): off until the user turns it on; turning it on or off starts or
+ *  cancels the embed job ([`crate::audio_model::switch`]).
+ */
+"audioModel";
 
 /**
  *  One field: the value the track shows and the other values the track's

@@ -190,6 +190,18 @@ pub fn after_analyze<H: JobHandler>(analyzer: H) -> Chained<H> {
     }
 }
 
+/// The embed job's handler (the audio model, ROADMAP 3.8), run once more if
+/// something asked for it meanwhile. It is queued again at its own priority,
+/// just under the analyze job's.
+pub fn after_embed<H: JobHandler>(embedder: H) -> Chained<H> {
+    Chained {
+        inner: embedder,
+        next: Next::Nothing,
+        priority: crate::audio_model::PRIORITY,
+        reach: None,
+    }
+}
+
 /// The matching job's handler, run once more if the fingerprints asked
 /// for it meanwhile, and followed by the deciding job once nothing is left
 /// to compare. Its reruns keep its own priority, below the rest of the

@@ -139,6 +139,10 @@ pub enum Feature {
     /// the owner's test switch (3.7, "Key"), until they reach the bar to be
     /// shown by default.
     LocalKey,
+    /// The on-device audio model that listens to every Library track
+    /// (3.8): off until the user turns it on; turning it on or off starts or
+    /// cancels the embed job ([`crate::audio_model::switch`]).
+    AudioModel,
 }
 
 impl Feature {
@@ -147,6 +151,7 @@ impl Feature {
             Feature::Wishlist => "feature_wishlist",
             Feature::RekordboxDatabase => "feature_rekordbox_database",
             Feature::LocalKey => "feature_local_key",
+            Feature::AudioModel => "feature_audio_model",
         }
     }
 }
@@ -204,6 +209,10 @@ pub async fn set_feature_enabled(
     feature: Feature,
     on: bool,
 ) -> Result<(), IpcError> {
+    if feature == Feature::AudioModel {
+        // Starts or cancels the embed job, which the fold below doesn't.
+        return Ok(crate::audio_model::switch(&writer, &jobs, on)?);
+    }
     Ok(set_feature(&writer, feature, on, |job| jobs.enqueue(job))?)
 }
 

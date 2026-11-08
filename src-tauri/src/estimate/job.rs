@@ -174,6 +174,7 @@ impl<V: Volumes + Sync + 'static> JobHandler for Analyzer<V> {
             .filter(|f| f.is_reachable(&volumes))
             .map(|f| f.id.0)
             .collect();
+        let reach_ids = reachable.clone();
         let ids = job
             .writer()
             .call(move |c| ledger::due_ids(c, Some(&reachable)))?;
@@ -221,6 +222,20 @@ impl<V: Volumes + Sync + 'static> JobHandler for Analyzer<V> {
                 if let Err(e) = crate::search::request(job.writer(), |j| job.enqueue(j)) {
                     eprintln!(
                         "estimate job {}: couldn't ask for the index: {e:?}",
+                        job.id()
+                    );
+                }
+                // New files are measured by now: the audio model (when its
+                // switch is on) listens to them next.
+                // Only for the folders reached now: with a drive unplugged, no
+                // embed job is queued just to find nothing to do.
+                let reach: crate::scan::chain::Reach =
+                    std::sync::Arc::new(move |_| reach_ids.clone());
+                if let Err(e) =
+                    crate::audio_model::request(job.writer(), Some(&reach), |j| job.enqueue(j))
+                {
+                    eprintln!(
+                        "estimate job {}: couldn't ask for the audio model: {e:?}",
                         job.id()
                     );
                 }

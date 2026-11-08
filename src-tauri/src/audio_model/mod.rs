@@ -17,12 +17,22 @@
 //! - **Reads only.** Nothing here writes a file or opens a connection; a
 //!   track is opened read-only.
 //!
-//! No database, job or screen lives here: those use [`AudioModel::listen`].
+//! The embed job ([`job`]) listens to each Library track with it and keeps
+//! the result ([`ledger`], [`subset`]); [`control`] holds the switch (off by
+//! default, nothing loaded while off) and the status. No screen lives here.
 
+pub mod control;
 pub mod decode;
+pub mod job;
+pub mod ledger;
 pub mod mel;
 pub mod resample;
+pub mod subset;
 pub mod window;
+
+pub(crate) use control::{due, request};
+pub use control::{embedder, switch, AudioModelStatus};
+pub use job::{embed_job, Embedder, PRIORITY};
 
 #[cfg(test)]
 mod tests;

@@ -86,6 +86,7 @@ const ASKS: &[(&str, Ask)] = &[
     ("search index", ask_search_index),
     ("waveforms", ask_waveforms),
     ("estimates", ask_estimates),
+    ("audio model", ask_audio_model),
 ];
 
 /// What the asks share.
@@ -280,6 +281,19 @@ fn ask_waveforms(a: &Asking) -> Result<(), DbError> {
     }
     if a.read(|c| crate::waveform::due(c, Some(&a.reachable)))? {
         a.queue(crate::waveform::waveform_job())?;
+    }
+    Ok(())
+}
+
+/// The audio model's embed job (ROADMAP 3.8) comes after the estimates, at a
+/// priority just under theirs, and only while its switch is on: with it off
+/// nothing is asked and the model is never loaded.
+fn ask_audio_model(a: &Asking) -> Result<(), DbError> {
+    if a.fingerprints_owed()? {
+        return Ok(());
+    }
+    if a.read(|c| crate::audio_model::due(c, Some(&a.reachable)))? {
+        a.queue(crate::audio_model::embed_job())?;
     }
     Ok(())
 }
