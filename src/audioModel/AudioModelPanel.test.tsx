@@ -11,7 +11,7 @@ import { tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 import { AudioModelPanel } from "./AudioModelPanel";
 
-const TRACK = tableRow(1);
+let track = tableRow(1);
 
 const STATUS: AudioModelStatus = { enabled: true, fingerprinted: 3, total: 40, failed: 0, running: true };
 const READY_GUESSES: Guesses = {
@@ -27,12 +27,14 @@ let status: AudioModelStatus;
 let guesses: Guesses;
 let similar: SoundsLike;
 let asked: string[];
+/** What set_genre was asked, in order. */
+let setGenre: unknown[];
 
 function renderPanel() {
   const client = createQueryClient();
   render(
     <QueryClientProvider client={client}>
-      <AudioModelPanel row={TRACK} />
+      <AudioModelPanel row={track} />
     </QueryClientProvider>,
   );
   return client;
@@ -43,10 +45,15 @@ beforeEach(() => {
   guesses = READY_GUESSES;
   similar = { state: "ready", tracks: [] };
   asked = [];
+  setGenre = [];
+  track = tableRow(1);
   useSelectedTrack.setState({ row: null, ids: [] });
-  mockIPC((cmd) => {
+  mockIPC((cmd, args) => {
     asked.push(cmd);
     switch (cmd) {
+      case "set_genre":
+        setGenre.push(args);
+        return 7;
       case "audio_model_status":
         return status;
       case "audio_model_guesses":
@@ -64,6 +71,13 @@ afterEach(() => {
   clearMocks();
 });
 
+/** Matches the accessible name of any genre guess's Use button. */
+function useName(name: string): boolean {
+  return [tx("audioModel:label.techno"), tx("audioModel:label.houseMusic")].some(
+    (genre) => name === tx("audioModel:useGenre", { genre }),
+  );
+}
+
 describe("AudioModelPanel", () => {
   it("is hidden while the switch is off, and asks for nothing but the switch", async () => {
     status = { ...STATUS, enabled: false };
@@ -79,18 +93,54 @@ describe("AudioModelPanel", () => {
     const panel = await screen.findByRole("region", { name: tx("audioModel:title") });
     const guess = (key: string, percent: number) =>
       tx("audioModel:guess", { label: tx(`audioModel:label.${key}`), percent });
-    const genres = [guess("techno", 84), guess("houseMusic", 61)].join(tx("audioModel:guessSeparator"));
-    expect(await within(panel).findByText(genres)).toBeVisible();
+    expect(await within(panel).findByText(guess("techno", 84))).toBeVisible();
+    expect(within(panel).getByText(guess("houseMusic", 61))).toBeVisible();
     expect(within(panel).getByText(guess("excitingMusic", 52))).toBeVisible();
   });
 
-  it("shows no button that applies a genre", async () => {
+  it("gives each genre guess of a Library track a Use button, and the mood none", async () => {
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: tx("audioModel:title") });
+    const uses = await within(panel).findAllByRole("button", { name: useName });
+    expect(uses.map((button) => button.getAttribute("aria-label"))).toEqual([
+      tx("audioModel:useGenre", { genre: tx("audioModel:label.techno") }),
+      tx("audioModel:useGenre", { genre: tx("audioModel:label.houseMusic") }),
+    ]);
+    expect(uses[0]).toHaveTextContent(tx("audioModel:use"));
+  });
+
+  it("Use calls set_genre with the Library track and the guess's name as shown, once, and says what it did", async () => {
+    renderPanel();
+    const name = tx("audioModel:label.houseMusic");
+    await userEvent.click(await screen.findByRole("button", { name: tx("audioModel:useGenre", { genre: name }) }));
+    await waitFor(() => expect(setGenre).toEqual([{ libraryTrack: track.libraryTrackId, name }]));
+    expect(await screen.findByText(tx("audioModel:used", { genre: name }))).toBeVisible();
+  });
+
+  it("never sets a genre by itself: nothing is asked of set_genre until Use is pressed", async () => {
     similar = { state: "ready", tracks: [{ row: tableRow(2), percent: 90 }] };
     renderPanel();
     const panel = await screen.findByRole("region", { name: tx("audioModel:title") });
     await within(panel).findByRole("button", { name: /Synthetic Tune 2/ });
-    // The only buttons are the "Sounds like" rows, which select a track.
-    expect(within(panel).getAllByRole("button")).toHaveLength(1);
+    expect(asked).not.toContain("set_genre");
+  });
+
+  it("shows no Use for a track outside the Library", async () => {
+    track = tableRow(1, { libraryTrackId: null, inLibrary: false });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: tx("audioModel:title") });
+    await within(panel).findByText(tx("audioModel:guess", { label: tx("audioModel:label.techno"), percent: 84 }));
+    expect(within(panel).queryAllByRole("button", { name: useName })).toHaveLength(0);
+  });
+
+  it("shows no Use for the guess that is already the track's genre", async () => {
+    track = tableRow(1, { genre: tx("audioModel:label.techno") });
+    renderPanel();
+    const panel = await screen.findByRole("region", { name: tx("audioModel:title") });
+    const uses = await within(panel).findAllByRole("button", { name: useName });
+    expect(uses.map((button) => button.getAttribute("aria-label"))).toEqual([
+      tx("audioModel:useGenre", { genre: tx("audioModel:label.houseMusic") }),
+    ]);
   });
 
   it("says a track not listened to yet is waiting, with how far the listening has got", async () => {

@@ -4,7 +4,7 @@
     "where": "Track details, after What's next, when the audio model is on."
   },
   "opinion": {
-    "purpose": "Says the panel shows the model's opinion only and changes nothing on the track.",
+    "purpose": "Says the panel shows the model's opinion only, and that nothing changes on the track unless the user presses Use.",
     "where": "Track details, under the Audio model heading."
   },
   "genre": {
@@ -30,6 +30,18 @@
   "noMood": {
     "purpose": "Says the model has no mood guess for this track, so it isn't read as a fault.",
     "where": "Audio model section, mood line."
+  },
+  "use": {
+    "purpose": "Button that sets the track's genre to this genre guess, as the user's own edit (one Undo, sent to rekordbox like any edit). The same word the energy suggestion uses.",
+    "where": "Audio model section, after each genre guess, for a Library track whose genre isn't already that guess."
+  },
+  "useGenre": {
+    "purpose": "What a screen reader says for the Use button, naming the genre it sets.",
+    "where": "Audio model section, the Use button's accessible name."
+  },
+  "used": {
+    "purpose": "Says what Use did, after it set the track's genre.",
+    "where": "Audio model section, under the genre guesses, after Use."
   },
   "similar.title": {
     "purpose": "Heading of the list of Library tracks the audio model hears as close to the selected one.",

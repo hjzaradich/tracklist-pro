@@ -450,6 +450,10 @@
     "where": "Details panel, under a field's value (or an other value), naming the file.",
     "approved": "Tag in {{file}}"
   },
+  "details.source.yours": {
+    "purpose": "Says a value is the user's own edit made in the app (today: a genre set with Use), which the track shows over rekordbox's and the files'.",
+    "where": "Details panel, under a field's value."
+  },
   "details.source.blankInRekordbox": {
     "purpose": "Says rekordbox has no value for the field; the files' values are listed below.",
     "where": "Details panel, in place of a value, for a track rekordbox knows.",
@@ -584,6 +588,10 @@
     "purpose": "Undo button naming what it takes back: the user's own energy taken away from several tracks at once.",
     "where": "Top bar, Undo button, when the next step to undo is clearing energy.",
     "approved": "Undo (energy cleared on {{count, number}} tracks)"
+  },
+  "undo.action.setGenre": {
+    "purpose": "Names the step Undo takes back: a track's genre set with Use on a genre guess, naming the genre.",
+    "where": "Top bar, the Undo button."
   },
   "details.energy.title": {
     "purpose": "Name of the group of ten energy buttons, and the heading over them.",

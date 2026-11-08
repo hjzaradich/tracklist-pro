@@ -17,6 +17,10 @@
 //!   another file of the track says something else, that value is listed
 //!   too, naming its file.
 //!
+//! - **The user's own value** (the app's own value of the field, today only
+//!   a genre set with "Use", `genre::own`) is shown first, as the lists
+//!   show it, and the value it stands in front of is listed under it.
+//!
 //! A file that agrees with the value shown is not listed: the panel is a
 //! summary, not a table of every file. Nothing is written here.
 //!
@@ -87,6 +91,10 @@ pub enum ValueOrigin {
     RekordboxEntry,
     /// A tag in one of the track's files (named in [`SourcedValue::file`]).
     File,
+    /// The user's own edit in the app (the app's own value of the field,
+    /// `app_value`): today only a genre set with "Use" (`genre::own`) shows
+    /// so.
+    Yours,
 }
 
 /// A file, by name.
@@ -104,7 +112,8 @@ pub struct NamedFile {
 pub struct SourcedValue {
     pub value: String,
     pub origin: ValueOrigin,
-    /// The file the value is the tag of; `None` for rekordbox's.
+    /// The file the value is the tag of; `None` for rekordbox's and the
+    /// user's own.
     pub file: Option<NamedFile>,
 }
 
@@ -118,7 +127,9 @@ pub struct FieldSources {
     /// leaves the field blank (a file's tag doesn't stand in for it).
     pub shown: Option<SourcedValue>,
     /// Values that differ from the one shown, each naming its file, in the
-    /// order the files are asked.
+    /// order the files are asked; under the user's own value, the value
+    /// the field would show without it comes first (rekordbox's or a
+    /// file's).
     pub others: Vec<SourcedValue>,
 }
 
@@ -272,11 +283,59 @@ fn of_library_track(
             })
             .collect();
     let attributes = entry.and_then(|entry| loaded.attributes.get(&entry));
+    let mut fields = fields_from(attributes.map(Vec::as_slice), &files);
+    if let Some(own) = crate::genre::own::own_genres(conn, &[id])?.remove(&id) {
+        with_own(&mut fields, TagField::Genre, &own);
+    }
     Ok(TagSources {
         in_rekordbox: entry.is_some(),
-        fields: fields_from(attributes.map(Vec::as_slice), &files),
+        fields,
         confirmed_entry: confirmed_entry(conn, &loaded, row)?,
     })
+}
+
+/// Puts the user's own value of `field` first, as the lists show it (the
+/// genre, `send_values::shown_fields`): the value the field showed before
+/// becomes one of the others, and the others that say the same as the
+/// user's go, as for any value shown.
+fn with_own(fields: &mut Vec<FieldSources>, field: TagField, own: &str) {
+    let at = fields.iter().position(|f| f.field == field);
+    let (before, mut others) = match at {
+        Some(at) => {
+            let old = fields.remove(at);
+            (old.shown, old.others)
+        }
+        None => (None, Vec::new()),
+    };
+    let shown = text(own).map(|value| SourcedValue {
+        value: value.to_owned(),
+        origin: ValueOrigin::Yours,
+        file: None,
+    });
+    if let Some(before) = before {
+        others.insert(0, before);
+    }
+    others.retain(|other| {
+        shown
+            .as_ref()
+            .is_none_or(|shown| shown.value.trim() != other.value.trim())
+    });
+    if shown.is_none() && others.is_empty() {
+        return;
+    }
+    let order = |f: TagField| TagField::ALL.iter().position(|&g| g == f);
+    let to = fields
+        .iter()
+        .position(|f| order(f.field) > order(field))
+        .unwrap_or(fields.len());
+    fields.insert(
+        to,
+        FieldSources {
+            field,
+            shown,
+            others,
+        },
+    );
 }
 
 /// The entry the user confirmed to the track's linked file, if the entry is

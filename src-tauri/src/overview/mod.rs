@@ -389,8 +389,9 @@ fn rekordbox_says(attribute: &str, entry: &str) -> String {
     )
 }
 
-/// Each Library track's `id`, what rekordbox says (`rb`) and the file's
-/// genre frames (`digest`), as [`genres_of`] reads them. `scoped` limits it
+/// Each Library track's `id`, its own genre if the user set one, else what
+/// rekordbox says (`rb`), and the file's genre frames (`digest`), as
+/// [`genres_of`] reads them. `scoped` limits it
 /// to the Library tracks of `?1`, a JSON array of their ids (a page of the
 /// index job).
 fn genre_source_sql(scoped: bool) -> String {
@@ -414,10 +415,11 @@ fn genre_source_sql(scoped: bool) -> String {
                         WHERE f.id = g.fid AND json_type(blk.value) = 'array' AND ({frames})
                         GROUP BY blk.key) b) END AS digest
          FROM (SELECT lt.id AS id, lt.linked_file_id AS fid,
-                      {rekordbox_genre} AS rb
+                      coalesce({own_genre}, {rekordbox_genre}) AS rb
                FROM library_track lt
                {scope}) g",
         frames = frame_filter(false),
+        own_genre = crate::genre::own::own_genre_sql("lt.id"),
         rekordbox_genre =
             rekordbox_says("Genre", &crate::attach::shown_entry_sql("lt.recording_id")),
     )
@@ -441,9 +443,11 @@ fn genre_of(rekordbox: Option<&str>, digest: Option<&str>) -> Option<String> {
 /// answer in `track_row.genre` and `genre_group`; the Overview's genre bars
 /// count those and the Library's genre door lists them.
 ///
-/// The genre is rekordbox's for a track rekordbox knows (blank there means
-/// none, [`BLANK_GENRE_FALLS_BACK`]), else the linked file's tag, read with
-/// the send's own rules; outer blanks are dropped.
+/// The genre is the track's own, when the user set one (the app's own value
+/// of `Genre`, `genre::own`; blank means none), else rekordbox's for a track
+/// rekordbox knows (blank there means none, [`BLANK_GENRE_FALLS_BACK`]),
+/// else the linked file's tag, read with the send's own rules; outer blanks
+/// are dropped.
 pub(crate) fn genres_of(
     conn: &Connection,
     ids: &[LibraryTrackId],

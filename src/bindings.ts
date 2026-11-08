@@ -412,6 +412,13 @@ export const commands = {
 	/**  Adds the proposed starter genres that aren't there yet; answers how many. */
 	genreLoadSeed: () => typedError<number, IpcError>(__TAURI_INVOKE("genre_load_seed")),
 	/**
+	 *  Sets a Library track's genre to a genre's name, as the user's own edit
+	 *  (ROADMAP 3.8: "Use" on a genre guess): one operation, one Undo. Answers
+	 *  the operation recorded, none if nothing changed. The track's row is
+	 *  worked out now, so the lists read right after show the genre.
+	 */
+	setGenre: (libraryTrack: LibraryTrackId, name: string) => typedError<number | null, IpcError>(__TAURI_INVOKE("set_genre", { libraryTrack, name })),
+	/**
 	 *  How many Library tracks there are, and a stamp that moves when the list
 	 *  of them would come back different. Cheap at any size: no list is read.
 	 */
@@ -1836,7 +1843,9 @@ export type FieldSources = {
 	shown: SourcedValue | null,
 	/**
 	 *  Values that differ from the one shown, each naming its file, in the
-	 *  order the files are asked.
+	 *  order the files are asked; under the user's own value, the value
+	 *  the field would show without it comes first (rekordbox's or a
+	 *  file's).
 	 */
 	others: SourcedValue[],
 };
@@ -3782,7 +3791,10 @@ export type SoundsLike = {
 export type SourcedValue = {
 	value: string,
 	origin: ValueOrigin,
-	/**  The file the value is the tag of; `None` for rekordbox's. */
+	/**
+	 *  The file the value is the tag of; `None` for rekordbox's and the
+	 *  user's own.
+	 */
 	file: NamedFile | null,
 };
 
@@ -4522,7 +4534,13 @@ export type ValueOrigin =
 /**  rekordbox's entry for the track. */
 "rekordboxEntry" | 
 /**  A tag in one of the track's files (named in [`SourcedValue::file`]). */
-"file";
+"file" | 
+/**
+ *  The user's own edit in the app (the app's own value of the field,
+ *  `app_value`): today only a genre set with "Use" (`genre::own`) shows
+ *  so.
+ */
+"yours";
 
 /**
  *  The verdicts. Stored in `file_verdict.verdict` under [`Verdict::as_str`]

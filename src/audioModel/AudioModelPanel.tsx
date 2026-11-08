@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { Guess, PanelState, TableRow } from "../bindings";
 import { useSelectedTrack } from "../shell/selectedTrack";
+import { useSetGenre } from "../trackTable/useSetGenre";
 import { useAudioGuesses, useAudioModelStatus, useSoundsLike } from "./useAudioModel";
 import styles from "./AudioModelPanel.module.css";
 
@@ -13,8 +14,11 @@ type LabelKey = keyof typeof import("../locales/en/audioModel.json")["label"];
  * "Audio model" in the Details panel (ROADMAP 3.8): the model's genre and mood
  * guesses for the selected track and the Library tracks that sound like it.
  * Shown only while the switch is on. It is the model's opinion on its own:
- * review only, nothing here is applied to a track, and it feeds no other
- * suggestion.
+ * nothing here is applied to a track by itself, and it feeds no other
+ * suggestion. A Library track's genre guesses each have "Use" (owner
+ * decision 2026-11-08), which sets the track's genre to the guess's name as
+ * the user's own edit: one Undo, sent to rekordbox like any edit. A guess
+ * that is already the track's genre has none.
  *
  * Give it a `key` per track, so one track's answer doesn't stay under the next.
  */
@@ -47,7 +51,7 @@ function Panel({ row, listened, total }: { row: TableRow; listened: number; tota
       {guesses.data !== undefined && ready && (
         <>
           <dl className={styles.guesses}>
-            <GuessLine name={t("genre")} guesses={guesses.data.genres} none={t("noGenre")} />
+            <GenreGuesses row={row} guesses={guesses.data.genres} />
             <GuessLine name={t("mood")} guesses={guesses.data.mood === null ? [] : [guesses.data.mood]} none={t("noMood")} />
           </dl>
           <SoundsLike row={row} />
@@ -84,6 +88,58 @@ function GuessLine({ name, guesses, none }: { name: string; guesses: Guess[]; no
           : guesses
               .map((guess) => t("guess", { label: t(`label.${guess.key as LabelKey}`), percent: guess.percent }))
               .join(t("guessSeparator"))}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * The genre guesses, each with "Use" for a Library track: it sets the track's
+ * genre to the guess's name as shown (useSetGenre). A guess that is already
+ * the track's genre has no "Use".
+ */
+function GenreGuesses({ row, guesses }: { row: TableRow; guesses: Guess[] }) {
+  const { t } = useTranslation("audioModel");
+  const setGenre = useSetGenre();
+  const libraryTrackId = row.libraryTrackId;
+  return (
+    <div className={styles.guessLine}>
+      <dt className={styles.name}>{t("genre")}</dt>
+      <dd className={styles.value}>
+        {guesses.length === 0 ? (
+          t("noGenre")
+        ) : (
+          <ul className={styles.genreGuesses}>
+            {guesses.map((guess) => {
+              const name = t(`label.${guess.key as LabelKey}`);
+              const usable = libraryTrackId !== null && row.genre?.trim() !== name.trim();
+              return (
+                <li key={guess.key} className={styles.genreGuess}>
+                  <span>{t("guess", { label: name, percent: guess.percent })}</span>
+                  {usable && (
+                    <button
+                      type="button"
+                      className={styles.use}
+                      aria-label={t("useGenre", { genre: name })}
+                      disabled={setGenre.isPending}
+                      onClick={() => setGenre.mutate({ libraryTrackId, name })}
+                    >
+                      {t("use")}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {setGenre.isError && (
+          <p role="alert" className={styles.error}>
+            {errorMessage(setGenre.error)}
+          </p>
+        )}
+        <p role="status" className={styles.quiet}>
+          {setGenre.isSuccess && setGenre.data !== null ? t("used", { genre: setGenre.variables.name }) : ""}
+        </p>
       </dd>
     </div>
   );

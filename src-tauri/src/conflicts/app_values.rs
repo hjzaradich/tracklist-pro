@@ -238,6 +238,23 @@ pub fn set(
     field: &str,
     value: &str,
 ) -> Result<Recorded<Option<AppValue>>, AppValueError> {
+    let details = json!({ "libraryTrackId": track.0, "field": field });
+    set_as(conn, volumes, SET_OPERATION, &details, track, field, value)
+}
+
+/// [`set`], recorded as an operation of the caller's own `kind` with the
+/// caller's `details`: an edit a feature offers by name, which the top bar's
+/// Undo names by its kind ("Use" on a genre guess, `genre::own`). The rules
+/// and the checks are [`set`]'s.
+pub(crate) fn set_as(
+    conn: &mut Connection,
+    volumes: &impl Volumes,
+    kind: &str,
+    details: &serde_json::Value,
+    track: LibraryTrackId,
+    field: &str,
+    value: &str,
+) -> Result<Recorded<Option<AppValue>>, AppValueError> {
     check(conn, track, field)?;
     if !TRACK_ATTRIBUTES.contains(&field) {
         return Err(AppValueError::NotEditable {
@@ -250,11 +267,10 @@ pub fn set(
             value: value.to_owned(),
         });
     }
-    let details = json!({ "libraryTrackId": track.0, "field": field });
     let recorded = ops::record_with_derived_first(
         conn,
-        SET_OPERATION,
-        &details,
+        kind,
+        details,
         // rekordbox's side, read in the operation's own transaction. Reads
         // only.
         |c| showing(c, volumes, track, field),
@@ -387,16 +403,21 @@ pub fn clear(
 
 /// Takes rekordbox's value in for one field: deletes the app's own value,
 /// **outside the operation log** (module docs). Only the merge before a
-/// send calls it, inside its own transaction.
+/// send calls it, inside its own transaction. A `Genre` taken in changes the
+/// genre the track shows (`genre::own`), so the track is marked due for the
+/// index, as the log marks it for an operation.
 pub(super) fn take_in(
     conn: &Connection,
     track: LibraryTrackId,
     field: &str,
 ) -> rusqlite::Result<()> {
-    conn.execute(
+    let removed = conn.execute(
         "DELETE FROM app_value WHERE library_track_id = ?1 AND field = ?2",
         (track.0, field),
     )?;
+    if removed > 0 && field == crate::genre::own::GENRE_FIELD {
+        crate::genre::own::mark_track_due(conn, track)?;
+    }
     Ok(())
 }
 

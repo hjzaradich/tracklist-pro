@@ -167,6 +167,9 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
     case "clear_energy":
       if (tracks !== null) return t("undo.action.clearEnergy", { count: tracks });
       break;
+    case "set_genre":
+      if (name !== null) return t("undo.action.setGenre", { name });
+      break;
     case "resolve_conflict":
       return t("undo.action.resolveConflict");
     case "resolve_conflicts":

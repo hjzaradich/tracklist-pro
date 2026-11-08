@@ -145,6 +145,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::genre::commands::genre_add_alias,
             crate::genre::commands::genre_remove_alias,
             crate::genre::commands::genre_load_seed,
+            crate::genre::own::set_genre,
             crate::library::library_summary,
             crate::library::promote_track,
             crate::library::remove_library_track,
