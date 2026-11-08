@@ -140,10 +140,12 @@ pub(super) fn start_with(
     if !exists(&layout.live) || !exists(&layout.swapping.join(DB_FILE_NAME)) {
         if let Err(again) = put_back_with(guard, layout, mv) {
             eprintln!("startup: the old Library couldn't all be put back: {again}");
-            // The Library in place opens without them, and writes from now
-            // on: they must never be put beside it again.
-            quarantine_orphans(guard, layout, now_ms);
         }
+        // Whatever stays (a piece that failed to move, or one skipped
+        // because its name is taken beside the Library) belongs to a state
+        // the Library in place has left, and it writes from now on: it must
+        // never be put beside it again.
+        quarantine_orphans(guard, layout, now_ms);
     }
     if !exists(&layout.live) {
         return Err(error);

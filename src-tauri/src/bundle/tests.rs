@@ -858,10 +858,32 @@ fn a_stale_piece_that_clashes_with_one_in_place_is_refused_and_both_are_kept() {
     assert_eq!(started, Swapped::NotReplaced(EventReason::FileInTheWay));
     let live = live(&guard);
     assert!(has_crate(&live, "old") && has_crate(&live, "in-log"));
-    assert_eq!(
-        fs::read(layout.swapping.join("tracklist-pro.db-wal")).unwrap(),
-        b"x"
-    );
+    // Kept whole, set apart where nothing reads it.
+    let apart = layout.backups.join(format!("{}-stray", stamp(1)));
+    assert_eq!(fs::read(apart.join("tracklist-pro.db-wal")).unwrap(), b"x");
+    assert!(!layout.swapping.exists());
+}
+
+#[test]
+fn a_stale_log_refused_for_its_clash_is_not_replayed_when_the_import_is_confirmed_again() {
+    let root = TempDir::new().unwrap();
+    let (guard, layout) = swap_over_a_stale_folder(root.path(), &[]);
+    let live = live(&guard);
+    // An older copy of the Library's log sits in `swapping`, its name taken
+    // beside the Library: the swap is refused and nothing is put back.
+    let wal = layout.swapping.join("tracklist-pro.db-wal");
+    fs::copy(swap_piece(&live, "-wal"), &wal).unwrap();
+    let started = start(&guard, &layout, 1, &mut || false).unwrap();
+    assert_eq!(started, Swapped::NotReplaced(EventReason::FileInTheWay));
+    // The Library carries on and is written to.
+    write_later(&live);
+    // Confirmed again in the same session: the old log must not come back.
+    confirm_staged(&guard).unwrap();
+    let swapped = start(&guard, &layout, 2, &mut crash_at(2)).unwrap();
+    assert_eq!(swapped, Swapped::NotReplaced(EventReason::CantWrite));
+    assert!(has_crate(&live, "later") && has_crate(&live, "in-log"));
+    let apart = layout.backups.join(format!("{}-stray", stamp(1)));
+    assert!(apart.join("tracklist-pro.db-wal").exists());
 }
 
 /// The crates in the Library at `live`, after adding "later" to it (closed
