@@ -93,7 +93,7 @@ export const SHARDS = [
     // that also compiled the library's test binary would be the slowest.
     lib: [],
     tests: [
-      "csp", "end_to_end", "file_roles_scale", "fingerprint_memory", "freeze_prototype", "grouping_scale",
+      "credentials_mock_store", "csp", "end_to_end", "file_roles_scale", "fingerprint_memory", "freeze_prototype", "grouping_scale",
       "matching_memory", "net_gate", "perf_100k", "rekordbox_xml_scale", "search_scale", "track_table_scale",
     ],
     bins: true,
