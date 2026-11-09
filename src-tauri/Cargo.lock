@@ -5114,6 +5114,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-specta",
  "tempfile",
+ "tracklist-pro",
  "tract-onnx",
  "unicode-normalization",
  "ureq",

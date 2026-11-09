@@ -150,6 +150,12 @@ pub fn save_token(
         Err(ClientError::Net(NetError::NotOptedIn(_))) => return Ok(SaveTokenOutcome::SwitchOff),
         Err(_) => return Ok(SaveTokenOutcome::CouldNotCheck),
     }
+    // The check can wait a long time for its turn: look at the switch again
+    // right before storing. (A switch turned off between this read and the
+    // write below is still not caught: they are not one transaction.)
+    if !is_opted_in(reads, Service::Discogs)? {
+        return Ok(SaveTokenOutcome::SwitchOff);
+    }
     Ok(match credentials.set(credentials::DISCOGS, token) {
         Ok(()) => SaveTokenOutcome::Saved,
         Err(_) => SaveTokenOutcome::StoreFailed,

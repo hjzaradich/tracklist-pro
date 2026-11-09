@@ -62,9 +62,11 @@ impl std::fmt::Debug for Credentials {
 impl Credentials {
     /// This platform's own store. Only the app's start calls it. In a test
     /// build it gives an in-memory store instead, so even a test that runs
-    /// the app's start can't reach a real one.
+    /// the app's start can't reach a real one. Unit tests are `cfg(test)`;
+    /// integration tests (tests/*.rs) get the same through the `test-store`
+    /// feature, which only the dev-dependency on this crate turns on.
     pub fn native() -> Credentials {
-        if cfg!(test) {
+        if cfg!(any(test, feature = "test-store")) {
             return Credentials::in_memory();
         }
         #[cfg(windows)]

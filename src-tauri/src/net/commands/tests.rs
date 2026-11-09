@@ -306,6 +306,21 @@ fn a_switch_turned_off_while_the_check_waits_is_reported_as_off() {
     assert_eq!(credentials.has(credentials::DISCOGS), Ok(false));
 }
 
+#[test]
+fn a_switch_turned_off_after_a_successful_check_and_before_the_store_keeps_nothing() {
+    let db = test_db();
+    switch_discogs_on(&db);
+    let credentials = Credentials::in_memory();
+    let outcome = save_token(&db.reads, &credentials, SECRET, |_| {
+        // Discogs accepts the token; then the switch goes off.
+        set_opt_in(&db.writer, Service::Discogs, false).unwrap();
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(outcome, SaveTokenOutcome::SwitchOff);
+    assert_eq!(credentials.has(credentials::DISCOGS), Ok(false));
+}
+
 // --- Token status and removing ---
 
 #[test]

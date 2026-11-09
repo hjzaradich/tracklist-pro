@@ -18,8 +18,11 @@
 //!   the tags of the track's other files that are on disk and not hidden,
 //!   best file first; their names count as [`IdentifySource::FileName`].
 //!
-//! The catalogue number has no tag source: the tag reader maps no tag to it
-//! (`send_values` `TAG_ATTRIBUTES`), so only a file's name can give one.
+//! The catalogue number is a tag source too, read here from the same stored
+//! `raw_tags` (the tag reader maps no tag to it and rekordbox has no attribute
+//! for it, so a send never carries it): ID3 `TXXX:CATALOGNUMBER`, Vorbis
+//! `CATALOGNUMBER` and MP4 `----:com.apple.iTunes:CATALOGNUMBER`.
+//!
 //! Tags that can't be read give nothing, and the other files still count.
 
 use rusqlite::{Connection, OptionalExtension};
@@ -131,6 +134,37 @@ fn from_tags(file: &StoredFile, source: IdentifySource, out: &mut Vec<Candidate>
             push(out, field, tag.value, &source);
         }
     }
+    if let Some(number) = catalogue_number_in(raw) {
+        push(out, IdentifyField::CatalogueNumber, number, &source);
+    }
+}
+
+/// The blocks of `raw_tags` that can hold a catalogue number, with the key
+/// each writes it under (compared without regard to case).
+const CATALOGUE_KEYS: [(&str, &str); 3] = [
+    ("id3v2", "TXXX:CATALOGNUMBER"),
+    ("mp4_ilst", "----:com.apple.iTunes:CATALOGNUMBER"),
+    ("vorbis_comments", "CATALOGNUMBER"),
+];
+
+/// The catalogue number a file's stored `raw_tags` hold, if any: the first
+/// non-empty value in the ID3, MP4 or Vorbis key above. A value the scan cut
+/// short, or tags that are not in the shape the scan writes, give nothing.
+fn catalogue_number_in(raw_tags: &str) -> Option<String> {
+    let blocks: serde_json::Value = serde_json::from_str(raw_tags).ok()?;
+    CATALOGUE_KEYS.iter().find_map(|(block, key)| {
+        blocks.get(block)?.as_array()?.iter().find_map(|item| {
+            if !item.get("key")?.as_str()?.eq_ignore_ascii_case(key) {
+                return None;
+            }
+            let value = item.get("value")?;
+            if value.get("full_len").is_some() {
+                return None;
+            }
+            let text = value.get("text")?.as_str()?.trim();
+            (!text.is_empty()).then(|| text.to_owned())
+        })
+    })
 }
 
 /// A file's name.
