@@ -174,7 +174,7 @@ fn a_check_with_the_larger_page_cache_gives_the_same_answers_on_a_due_and_a_not_
     let (plain, roomy) = both(&reads);
     assert_eq!(plain, roomy);
     assert!(plain.iter().all(|due| !due), "{plain:?}");
-    // Made due: no measurement, no comparison, no track for any file.
+    // Made due: no measurement and no comparison for any file.
     writer
         .call(|c| {
             c.execute_batch(
@@ -186,7 +186,8 @@ fn a_check_with_the_larger_page_cache_gives_the_same_answers_on_a_due_and_a_not_
         .unwrap();
     let (plain, roomy) = both(&reads);
     assert_eq!(plain, roomy);
-    assert!(plain[..3].iter().all(|due| *due), "{plain:?}");
+    // Quality and matching are due now; the others read other tables.
+    assert!(plain[..2].iter().all(|due| *due), "{plain:?}");
 }
 
 #[test]
