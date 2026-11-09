@@ -118,9 +118,9 @@ describe("the identification line under an Inbox file", () => {
   });
 
   describe.each([
-    ["nothing was found", "nothing", "no_match", "identify:inboxLine.nothingWhy"],
-    ["the look-up failed", "failed", "offline", "identify:inboxLine.failedWhy"],
-    ["the look-up was skipped", "skipped", "services_off", "identify:inboxLine.skippedWhy"],
+    ["the file is a dud", "nothing", "no_match", "identify:inboxLine.nothingWhy"],
+    ["the service errs", "failed", "offline", "identify:inboxLine.failedWhy"],
+    ["the app holds back", "skipped", "services_off", "identify:inboxLine.skippedWhy"],
   ] as const)("when %s", (_name, state, code, key) => {
     it("says so with the reason", async () => {
       inboxBackend({
