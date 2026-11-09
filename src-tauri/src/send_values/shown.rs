@@ -80,8 +80,9 @@ fn compose(
 /// one marks the track due for the index (`genre::own::mark_due`). `Year`
 /// and `Mix` are not here: no list shows, sorts or searches them (the
 /// Details panel reads the own `Year` when it opens).
-pub(crate) const OWN_LISTED_FIELDS: [&str; 6] =
-    ["Name", "Artist", "Album", "Remixer", "Label", "Genre"];
+pub(crate) const OWN_LISTED_FIELDS: [&str; 7] = [
+    "Name", "Artist", "Album", "Remixer", "Label", "Genre", "Comments",
+];
 
 /// The app's own value of each of `fields` for each of these Library tracks
 /// that holds one, as stored (blank when the user wants none), in one query
@@ -411,6 +412,7 @@ pub fn shown_fields(
                 ("Remixer", &mut fields.remixer),
                 ("Label", &mut fields.label),
                 ("Genre", &mut fields.genre),
+                ("Comments", &mut fields.comment),
             ] {
                 if let Some(value) = mine.get(field) {
                     value.clone_into(slot);

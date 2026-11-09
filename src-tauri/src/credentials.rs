@@ -94,6 +94,16 @@ impl Credentials {
         }
     }
 
+    /// Whether this is keyring-core's in-memory mock store, known from the
+    /// store's own name without touching an entry. A test that is about to
+    /// write a fake secret asks this first, so a build that got a real
+    /// store fails before anything is written.
+    pub fn is_in_memory(&self) -> bool {
+        self.store
+            .as_ref()
+            .is_some_and(|store| store.vendor().starts_with("Mock store"))
+    }
+
     /// No store at all: what Linux gets.
     pub fn unavailable() -> Credentials {
         Credentials { store: None }

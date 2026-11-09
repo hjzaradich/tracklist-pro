@@ -301,8 +301,8 @@ fn of_library_track(
 }
 
 /// The fields the Details panel shows the app's own value of, first.
-const OWN_SHOWN_FIELDS: [&str; 7] = [
-    "Name", "Artist", "Album", "Genre", "Remixer", "Label", "Year",
+const OWN_SHOWN_FIELDS: [&str; 9] = [
+    "Name", "Artist", "Album", "Genre", "Composer", "Remixer", "Label", "Year", "Comments",
 ];
 
 /// Puts the user's own value of `field` first, as the lists show it (the

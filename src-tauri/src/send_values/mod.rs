@@ -101,6 +101,7 @@ pub use sources::{
 pub(crate) use tag_fields::read_only as tag_values;
 pub(crate) use tag_fields::read_only_and_largest_binary as tag_values_and_largest_binary;
 pub use tag_fields::TAG_ATTRIBUTES;
+pub(crate) use tag_fields::{join_distinct, join_values};
 
 /// The `TRACK` attributes that are rekordbox's analysis: a track already in
 /// rekordbox is sent without them (rule 3). The `TEMPO` and `POSITION_MARK`

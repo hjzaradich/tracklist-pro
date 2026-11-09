@@ -52,6 +52,7 @@ fn frame(field: &str) -> &'static str {
         "Label" => "TPUB",
         "Genre" => "TCON",
         "Comments" => "COMM::eng",
+        "Composer" => "TCOM",
         other => panic!("no frame for {other}"),
     }
 }

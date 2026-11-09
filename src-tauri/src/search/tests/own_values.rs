@@ -28,6 +28,8 @@ fn track() -> Track {
             ("Album", "Zed album"),
             ("Remixer", "Zed remixer"),
             ("Label", "Zed label"),
+            ("Comments", "Remark one"),
+            ("Composer", "Writer one"),
         ],
     );
     let library = LibraryTrackId(lib.library(recording, file));
@@ -357,4 +359,84 @@ fn an_own_name_counts_as_a_title_for_the_overviews_missing_tags() {
         .call(move |c| crate::send_values::shown_tags(c, &Mount, &[library]))
         .unwrap();
     assert_eq!(shown[&library].title, "Mine alone");
+}
+
+// ---- Comments and Composer (6B F2) ---------------------------------------------------
+
+#[test]
+fn an_own_comments_shows_in_the_details_and_is_found_by_search() {
+    let t = track();
+    assert_eq!(t.lib.finds("remark one"), vec![t.recording]);
+
+    t.set("Comments", "Mine comment");
+
+    assert!(t.due(), "setting an own Comments marks the track due");
+    assert_eq!(t.lib.finds("mine comment"), vec![t.recording]);
+    assert_eq!(
+        t.lib.finds("remark one"),
+        Vec::<i64>::new(),
+        "the file's comment is not what the search holds any more"
+    );
+    assert_eq!(
+        t.details(TagField::Comment),
+        Some(("Mine comment".into(), ValueOrigin::Yours))
+    );
+}
+
+#[test]
+fn a_blank_own_comments_shows_no_comment_and_finds_nothing() {
+    let t = track();
+    t.set("Comments", " ");
+    t.lib.settle();
+
+    assert_eq!(t.lib.finds("remark one"), Vec::<i64>::new());
+    assert_eq!(t.details(TagField::Comment), None);
+}
+
+#[test]
+fn a_track_without_own_comments_is_found_by_its_comment_and_is_not_marked_due() {
+    let t = track();
+    let (second, second_file) = t.lib.track(Some("Second"), Some("Other"), "b.mp3");
+    t.lib.tag(second_file, &[("Comments", "Second comment")]);
+    t.lib.library(second, second_file);
+    t.lib.settle();
+
+    t.set("Comments", "Mine comment");
+
+    let marked: Vec<i64> = t
+        .lib
+        .writer
+        .call(|c| {
+            c.prepare("SELECT recording_id FROM search_due")?
+                .query_map([], |r| r.get(0))?
+                .collect()
+        })
+        .unwrap();
+    assert_eq!(
+        marked,
+        vec![t.recording],
+        "only the track whose value changed"
+    );
+    t.lib.settle();
+    assert_eq!(t.lib.finds("second comment"), vec![second]);
+    assert_eq!(t.lib.finds("mine comment"), vec![t.recording]);
+}
+
+#[test]
+fn an_own_composer_is_the_composer_the_details_panel_shows_and_it_is_not_searched() {
+    let t = track();
+    assert_eq!(
+        t.details(TagField::Composer),
+        Some(("Writer one".into(), ValueOrigin::File))
+    );
+
+    t.set("Composer", "Mine composer");
+
+    assert_eq!(
+        t.details(TagField::Composer),
+        Some(("Mine composer".into(), ValueOrigin::Yours))
+    );
+    for word in ["writer one", "mine composer"] {
+        assert_eq!(t.lib.finds(word), Vec::<i64>::new(), "{word}");
+    }
 }

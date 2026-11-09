@@ -10,6 +10,12 @@ use tracklist_pro_lib::credentials::{self, Credentials};
 #[test]
 fn an_integration_test_that_asks_for_the_native_store_gets_the_in_memory_mock() {
     let first = Credentials::native();
+    // Decided before anything is written: a build that got a real store
+    // fails here, with nothing stored in it.
+    assert!(
+        first.is_in_memory(),
+        "not the in-memory mock store: nothing was written"
+    );
     assert!(first.is_available());
     first.set(credentials::DISCOGS, "FAKE-token").unwrap();
     assert_eq!(first.has(credentials::DISCOGS), Ok(true));

@@ -99,12 +99,25 @@ fn a_test_build_never_reaches_the_real_store() {
     // `native()` is the in-memory store while tests run, so even a test that
     // starts the whole app can't read or write the user's real credentials.
     let a = Credentials::native();
+    // Decided before anything is written: a real store fails here, untouched.
+    assert!(
+        a.is_in_memory(),
+        "not the in-memory mock store: nothing was written"
+    );
     assert!(a.is_available());
     a.set(DISCOGS, TOKEN).unwrap();
     // A second call makes a store of its own: nothing is shared with a
     // lasting store.
     let b = Credentials::native();
     assert_eq!(b.has(DISCOGS), Ok(false));
+}
+
+#[test]
+fn the_in_memory_store_says_it_is_one_without_holding_an_entry_and_no_store_does_not() {
+    let store = Credentials::in_memory();
+    assert!(store.is_in_memory());
+    assert_eq!(store.has(DISCOGS), Ok(false), "asking wrote nothing");
+    assert!(!Credentials::unavailable().is_in_memory());
 }
 
 #[test]

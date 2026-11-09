@@ -486,6 +486,48 @@ fn a_catalogue_number_in_the_tags_is_suggested_for_id3_vorbis_and_mp4() {
 }
 
 #[test]
+fn a_repeated_or_nul_separated_catalogue_number_is_one_suggestion_like_any_tag() {
+    let cases = [
+        // ID3v2.4 separates the values of one frame with NUL.
+        (
+            "id3v2",
+            vec![("TXXX:CATALOGNUMBER", " ROOK1 ROOK2 ")],
+            "ROOK1, ROOK2",
+        ),
+        ("id3v2", vec![("TXXX:CATALOGNUMBER", " ROOK2")], "ROOK2"),
+        (
+            "vorbis_comments",
+            vec![("CATALOGNUMBER", "ROOK1"), ("CATALOGNUMBER", "ROOK2")],
+            "ROOK1, ROOK2",
+        ),
+        (
+            "vorbis_comments",
+            vec![("CATALOGNUMBER", "ROOK1"), ("catalognumber", " ROOK1 ")],
+            "ROOK1",
+        ),
+        (
+            "vorbis_comments",
+            vec![("CATALOGNUMBER", " "), ("CATALOGNUMBER", "ROOK2")],
+            "ROOK2",
+        ),
+    ];
+    for (block, items, expected) in cases {
+        let t = track("a.mp3");
+        t.raw_tags(t.file, frames_in(block, &items));
+        assert_eq!(
+            t.field(IdentifyField::CatalogueNumber).1,
+            vec![(
+                expected.to_owned(),
+                vec![IdentifySource::Tags {
+                    file: t.named(t.file, "a.mp3")
+                }]
+            )],
+            "{block} {items:?}"
+        );
+    }
+}
+
+#[test]
 fn a_catalogue_number_the_tags_and_the_file_name_share_is_one_suggestion_with_two_sources() {
     let t = track("Kit - Velo [ROOK042].mp3");
     t.raw_tags(
