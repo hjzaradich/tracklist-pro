@@ -213,6 +213,49 @@ fn a_check_gives_its_connection_back_with_the_page_cache_size_it_had() {
 }
 
 #[test]
+fn a_cache_size_that_couldnt_be_read_is_put_back_to_sqlites_default() {
+    use crate::jobs::startup::{RoomyCache, CHECK_CACHE_KIB};
+    let (_dir, _volume, _db, writer) = scanned();
+    let reads = ReadPool::open(writer.guarded_path()).unwrap();
+    let size =
+        |c: &rusqlite::Connection| c.query_row("PRAGMA cache_size", [], |r| r.get::<_, i64>(0));
+    let (during, after) = reads
+        .read(|c| {
+            let during = {
+                let _cache = RoomyCache::on_with_unreadable_size(c);
+                size(c)?
+            };
+            Ok((during, size(c)?))
+        })
+        .unwrap();
+    assert_eq!(during, -CHECK_CACHE_KIB);
+    assert_eq!(after, -2000);
+}
+
+#[test]
+fn the_startup_asks_give_their_read_connection_back_with_the_page_cache_size_it_had() {
+    let (_dir, volume, _db, writer) = scanned();
+    // One connection in the pool, so the asks and the look afterwards use
+    // the same one; given its own size, to see that size come back.
+    let reads = ReadPool::with_size(writer.guarded_path(), 1).unwrap();
+    let size =
+        |c: &rusqlite::Connection| c.query_row("PRAGMA cache_size", [], |r| r.get::<_, i64>(0));
+    reads
+        .read(|c| c.pragma_update(None, "cache_size", -3000))
+        .unwrap();
+    let enqueue = |_: NewJob| -> Result<JobId, DbError> { Ok(JobId(0)) };
+    let reach_volume = volume.clone();
+    let asked = ask_what_is_due(
+        &writer,
+        &reads,
+        &enqueue,
+        &reach_by(move || reach_volume.clone()),
+    );
+    assert_eq!(asked.failed, 0);
+    assert_eq!(reads.read(|c| size(c)).unwrap(), -3000);
+}
+
+#[test]
 fn the_genre_model_is_asked_for_at_startup_only_while_the_audio_model_is_on() {
     use crate::settings::{write_feature_enabled, Feature};
     let (_dir, volume, _db, writer) = scanned();

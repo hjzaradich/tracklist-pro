@@ -1343,6 +1343,44 @@ fn a_confirm_that_cant_be_deleted_still_opens_the_library_and_doesnt_loop() {
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn a_finished_swap_whose_confirm_cant_be_deleted_keeps_the_new_library_and_the_backup() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let root = TempDir::new().unwrap();
+    let guard = confirmed_swap(root.path());
+    let layout = Layout::of(&guard);
+    // Nothing is in the way, so the swap itself goes through; only the
+    // confirm, held open (no sharing), can't be deleted at its end.
+    let held = File::options()
+        .read(true)
+        .share_mode(0)
+        .open(&layout.marker)
+        .unwrap();
+    let first = start(&guard, &layout, 1, &mut || false);
+    // The new Library is in place whatever was reported, and the old one is
+    // kept once, not lost and not put back beside it.
+    assert!(has_crate(&live(&guard), "new"));
+    assert_eq!(kept_ids(&guard).len(), 1, "{first:?}");
+    let backup = kept_ids(&guard).remove(0);
+    assert!(layout.marker.exists());
+    // Starting again while it is still stuck changes nothing and doesn't stop.
+    let second = start(&guard, &layout, 2, &mut || false);
+    assert!(second.is_ok(), "{second:?}");
+    assert!(has_crate(&live(&guard), "new"));
+    assert_eq!(kept_ids(&guard), [backup]);
+    // Once it can be deleted, a start settles it, still on the new Library.
+    drop(held);
+    assert!(start(&guard, &layout, 3, &mut || false).is_ok());
+    assert!(!layout.marker.exists());
+    assert!(has_crate(&live(&guard), "new"));
+    assert_eq!(kept_ids(&guard).len(), 1);
+    assert_eq!(
+        start(&guard, &layout, 4, &mut || false).unwrap(),
+        Swapped::Nothing
+    );
+}
+
 #[test]
 fn with_no_confirm_and_the_library_still_set_aside_the_next_start_brings_it_home() {
     let root = TempDir::new().unwrap();

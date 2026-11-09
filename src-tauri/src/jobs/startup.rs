@@ -114,13 +114,28 @@ impl<'c> RoomyCache<'c> {
         let before = conn
             .query_row("PRAGMA cache_size", [], |r| r.get::<_, i64>(0))
             .ok();
+        Self::enlarge(conn, before)
+    }
+
+    /// `before` is the size read from the connection, `None` if the read
+    /// failed. Then the size to give back is unknown, so SQLite's default is
+    /// put back rather than leaving the larger one on the connection.
+    fn enlarge(conn: &'c Connection, before: Option<i64>) -> Self {
         let set = conn.pragma_update(None, "cache_size", -CHECK_CACHE_KIB);
         RoomyCache {
             conn,
-            before: before.filter(|_| set.is_ok()),
+            before: set.is_ok().then(|| before.unwrap_or(DEFAULT_CACHE_SIZE)),
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn on_with_unreadable_size(conn: &'c Connection) -> Self {
+        Self::enlarge(conn, None)
+    }
 }
+
+/// SQLite's default `cache_size` (2 MB, as a negative count of KiB).
+const DEFAULT_CACHE_SIZE: i64 = -2000;
 
 impl Drop for RoomyCache<'_> {
     fn drop(&mut self) {
