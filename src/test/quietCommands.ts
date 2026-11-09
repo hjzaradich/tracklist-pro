@@ -92,6 +92,8 @@ const ANSWERS: Record<string, unknown> = {
   },
   identify_suggestions: { fields: [], catalogueNumber: { field: "CatalogueNumber", current: null, suggestions: [] } },
   identify_lookup_status: [],
+  identify_cover_releases: [],
+  identify_inbox_status: [],
   audio_model_status: { enabled: false, fingerprinted: 0, total: 0, failed: 0, running: false },
 };
 

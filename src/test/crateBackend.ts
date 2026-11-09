@@ -227,6 +227,7 @@ export function crateBackend(options: {
       case "next_settings":
       case "identify_suggestions":
       case "identify_lookup_status":
+      case "identify_cover_releases":
       case "online_services_status":
         // "What's next" and "Look up" in the Details panel: nothing to suggest.
         return quietAnswer(cmd);

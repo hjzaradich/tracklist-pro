@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { InboxItem, Label, LabelCounts } from "../bindings";
+import { useInboxLookupStatuses } from "../identify/useIdentify";
 import { StageScreen } from "../shell/StageScreen";
 import { useMusicFolders } from "../scan/useMusicFolders";
 import { fileNameOf, type Result } from "./inboxText";
@@ -71,10 +72,11 @@ export function InboxScreen() {
 
   const inboxFolders = (folders.data ?? []).filter((f) => f.role === "inbox");
   const all = items.data ?? [];
+  const lookUps = useInboxLookupStatuses(all.map((item) => item.fileId));
   const names = new Map(all.map((item) => [item.id, fileNameOf(item)]));
   const already = all.filter((item) => item.label === "already_have");
   const batches = batchesOf(all.filter((item) => item.label !== "already_have"));
-  const failure = items.error ?? count.error ?? folders.error ?? action.error;
+  const failure = items.error ?? count.error ?? folders.error ?? action.error ?? lookUps.error;
   const when = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" });
 
   const perform = (scope: string, request: InboxAction) =>
@@ -102,6 +104,7 @@ export function InboxScreen() {
       busy={action.isPending}
       result={results[`item:${item.id}`]}
       names={names}
+      lookUp={lookUps.data?.get(item.fileId)}
       onAct={(what) => act(item, what)}
     />
   );

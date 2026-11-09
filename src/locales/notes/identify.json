@@ -163,10 +163,6 @@
     "purpose": "Says the look-up of several tracks was started.",
     "where": "Look up panel, in Track details. Under the buttons."
   },
-  "lookUp.asked.someLeftOut": {
-    "purpose": "Says some selected tracks could not be looked up and why.",
-    "where": "Look up panel, in Track details. Under the buttons."
-  },
   "lookUp.asked.none": {
     "purpose": "Says nothing was started because no selected track is a Library track with a file.",
     "where": "Look up panel, in Track details. Under the buttons."
@@ -227,6 +223,10 @@
     "purpose": "Names an online service as a suggestion's source.",
     "where": "Look up panel, in Track details. Beside a suggestion."
   },
+  "lookUp.source.nameSearch": {
+    "purpose": "Names a MusicBrainz suggestion that came from searching by title and artist, not from a fingerprint.",
+    "where": "Look up panel, in Track details. After a suggestion, naming where it came from."
+  },
   "lookUp.source.onlineVia": {
     "purpose": "Names an online service and the service that led to it.",
     "where": "Look up panel, in Track details. Beside a suggestion."
@@ -251,6 +251,26 @@
     "purpose": "Button that uses the first suggestion of every row shown, as one step.",
     "where": "Look up panel, in Track details. Under the rows, when more than one row is shown."
   },
+  "lookUp.discogsCredit": {
+    "purpose": "Credits Discogs, as its terms ask, whenever a suggestion shown came from it.",
+    "where": "Look up panel, in Track details. Under the suggestions."
+  },
+  "lookUp.cover.loading": {
+    "purpose": "Says the cover is being fetched.",
+    "where": "Look up panel, in Track details. Above the suggestions, while the cover loads."
+  },
+  "lookUp.cover.none": {
+    "purpose": "Says the cover could not be fetched.",
+    "where": "Look up panel, in Track details. Above the suggestions, when fetching the cover failed."
+  },
+  "lookUp.cover.alt": {
+    "purpose": "Describes the cover picture to a screen reader when the release's album name isn't known.",
+    "where": "Look up panel, in Track details. The cover picture's alt text."
+  },
+  "lookUp.cover.altAlbum": {
+    "purpose": "Describes the cover picture to a screen reader, naming the album.",
+    "where": "Look up panel, in Track details. The cover picture's alt text."
+  },
   "lookUp.used_one": {
     "purpose": "Says one suggestion was used.",
     "where": "Look up panel, in Track details. Under the rows."
@@ -266,5 +286,57 @@
   "lookUp.catalogueNote": {
     "purpose": "Says the catalogue number stays in the app.",
     "where": "Look up panel, in Track details. Under the rows, when a catalogue number is suggested."
+  },
+  "inboxLine.looking": {
+    "purpose": "Says the file's online look-up is waiting or running.",
+    "where": "Inbox, under a file's row. While the look-up is waiting or running."
+  },
+  "inboxLine.identified": {
+    "purpose": "Says what the file was identified as, when no source is known.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.identifiedFrom": {
+    "purpose": "Says what the file was identified as (artist, title, version) and where that came from.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.found_one": {
+    "purpose": "Says one detail was found when no artist or title was.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.found_other": {
+    "purpose": "Says several details were found when no artist or title was.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.nothing": {
+    "purpose": "Says the look-up found nothing.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.nothingWhy": {
+    "purpose": "Says the look-up found nothing, and why.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.failed": {
+    "purpose": "Says the look-up failed.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.failedWhy": {
+    "purpose": "Says the look-up failed, and why.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.skipped": {
+    "purpose": "Says the look-up was skipped.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.skippedWhy": {
+    "purpose": "Says the look-up was skipped, and why.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.nameJoin": {
+    "purpose": "The separator between the artist and the title.",
+    "where": "Inbox, inside the identified line."
+  },
+  "inboxLine.mix": {
+    "purpose": "Wraps the version after the title.",
+    "where": "Inbox, inside the identified line."
   }
 }

@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import type {
+  CoverAnswer,
   IdentifyField,
   IdentifyFieldSuggestions,
   IdentifyLookupStatus,
@@ -17,6 +18,7 @@ import { useSelectedTrack } from "../shell/selectedTrack";
 import { tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 import { LookUpPanel } from "./LookUpPanel";
+import { DISCOGS_SERVICE, MUSICBRAINZ_SERVICE } from "./useIdentify";
 
 let track = tableRow(1);
 
@@ -58,8 +60,13 @@ let refusal: unknown;
 let asked: string[];
 let used: unknown[];
 let lookedUp: unknown[];
-/** What identify_look_up_tracks answers: the job, or none. */
+/** What identify_look_up_tracks and identify_look_up_recordings answer: the job, or none. */
 let job: number | null;
+let lookedUpRecordings: unknown[];
+/** The release ids the track's kept look-up has, and what the Cover Art Archive says for the first. */
+let releases: string[];
+let cover: CoverAnswer;
+let coverAsks: unknown[];
 
 function renderPanel() {
   const client = createQueryClient();
@@ -92,8 +99,12 @@ beforeEach(() => {
   used = [];
   lookedUp = [];
   job = 5;
+  lookedUpRecordings = [];
+  releases = [];
+  cover = { kind: "noCover" };
+  coverAsks = [];
   track = tableRow(1);
-  useSelectedTrack.setState({ row: null, ids: [], libraryIdsOf: null });
+  useSelectedTrack.setState({ row: null, ids: [] });
   mockIPC((cmd, args) => {
     asked.push(cmd);
     switch (cmd) {
@@ -110,6 +121,14 @@ beforeEach(() => {
       case "identify_look_up_tracks":
         lookedUp.push(args);
         return job;
+      case "identify_look_up_recordings":
+        lookedUpRecordings.push(args);
+        return job;
+      case "identify_cover_releases":
+        return releases;
+      case "identify_cover":
+        coverAsks.push(args);
+        return cover;
       default:
         // Events and anything else the page asks for: quiet.
         throw new Error(`unexpected command ${cmd}`);
@@ -328,44 +347,176 @@ describe("LookUpPanel", () => {
   });
 
   describe("with several tracks selected", () => {
-    it("Look up N tracks asks for the selected Library tracks, once", async () => {
-      useSelectedTrack.setState({
-        ids: [101, 102, 103],
-        libraryIdsOf: (ids) => ids.map((id) => id - 100),
-      });
+    it("Look up N tracks sends the ids of every selected row, rows the table never loaded included, once", async () => {
+      // Ctrl+A over 5,000 rows: the screen holds a few of them, the request carries them all.
+      const everyRow = Array.from({ length: 5000 }, (_, index) => 101 + index);
+      useSelectedTrack.setState({ ids: everyRow });
       renderPanel();
       const region = await panel();
-      await userEvent.click(await within(region).findByRole("button", { name: tx("identify:lookUp.selected", { count: 3 }) }));
-      await waitFor(() => expect(lookedUp).toEqual([{ libraryTrackIds: [1, 2, 3] }]));
-      expect(await within(region).findByText(tx("identify:lookUp.asked.queued", { count: 3 }))).toBeVisible();
+      await userEvent.click(await within(region).findByRole("button", { name: tx("identify:lookUp.selected", { count: 5000 }) }));
+      await waitFor(() => expect(lookedUpRecordings).toEqual([{ recordings: everyRow }]));
+      expect(lookedUp).toEqual([]);
+      expect(await within(region).findByText(tx("identify:lookUp.asked.queued", { count: 5000 }))).toBeVisible();
     });
 
-    it("says how many were left out when some selected tracks aren't Library tracks the table holds", async () => {
-      useSelectedTrack.setState({ ids: [101, 102, 103], libraryIdsOf: () => [1] });
-      renderPanel();
-      const region = await panel();
-      await userEvent.click(await within(region).findByRole("button", { name: tx("identify:lookUp.selected", { count: 3 }) }));
-      expect(await within(region).findByText(tx("identify:lookUp.asked.someLeftOut", { count: 1, left: 2 }))).toBeVisible();
-      expect(lookedUp).toEqual([{ libraryTrackIds: [1] }]);
-    });
-
-    it("sends nothing and says so when none of the selected tracks is a Library track", async () => {
-      useSelectedTrack.setState({ ids: [101, 102], libraryIdsOf: () => [] });
+    it("says so when the backend finds no selected track with a file to look up", async () => {
+      job = null;
+      useSelectedTrack.setState({ ids: [101, 102] });
       renderPanel();
       const region = await panel();
       await userEvent.click(await within(region).findByRole("button", { name: tx("identify:lookUp.selected", { count: 2 }) }));
       expect(await within(region).findByText(tx("identify:lookUp.asked.none"))).toBeVisible();
-      expect(lookedUp).toEqual([]);
+      expect(lookedUpRecordings).toEqual([{ recordings: [101, 102] }]);
     });
 
     it("disables Look up N tracks with the same reason when every online service is off", async () => {
       services = ALL_OFF;
-      useSelectedTrack.setState({ ids: [101, 102], libraryIdsOf: (ids) => [...ids] });
+      useSelectedTrack.setState({ ids: [101, 102] });
       renderPanel();
       const region = await panel();
       const button = await within(region).findByRole("button", { name: tx("identify:lookUp.selected", { count: 2 }) });
       await waitFor(() => expect(button).toBeDisabled());
       expect(button).toHaveAccessibleDescription(tx("identify:lookUp.off"));
     });
+  });
+
+  describe("the cover", () => {
+    const COVER_ONLY: OnlineServicesStatus = { ...ONE_ON, coverArt: true };
+    const releaseId = "11111111-1111-1111-1111-111111111111";
+    const withAlbum = () => {
+      suggestions = { ...suggestions, fields: [field("Album", null, [{ value: "Some Album", sources: [ONLINE] }])] };
+    };
+
+    it("draws the picture from the data the command returns, not from a web address", async () => {
+      services = COVER_ONLY;
+      releases = [releaseId, "22222222-2222-2222-2222-222222222222"];
+      cover = { kind: "image", mime: "image/jpeg", data: "QUJD" };
+      withAlbum();
+      renderPanel();
+      const region = await panel();
+      const picture = await within(region).findByRole("img", { name: tx("identify:lookUp.cover.altAlbum", { album: "Some Album" }) });
+      expect(picture.getAttribute("src")).toBe("data:image/jpeg;base64,QUJD");
+      expect(picture).toHaveAttribute("width", "96");
+      expect(coverAsks).toEqual([{ releaseMbid: releaseId }]);
+    });
+
+    it("names the cover generally when the album is not known", async () => {
+      services = COVER_ONLY;
+      releases = [releaseId];
+      cover = { kind: "image", mime: "image/png", data: "QUJD" };
+      renderPanel();
+      expect(await within(await panel()).findByRole("img", { name: tx("identify:lookUp.cover.alt") })).toBeVisible();
+    });
+
+    it("does not draw a picture whose type is not a picture type", async () => {
+      services = COVER_ONLY;
+      releases = [releaseId];
+      cover = { kind: "image", mime: "text/html", data: "QUJD" };
+      renderPanel();
+      const region = await panel();
+      await waitFor(() => expect(coverAsks).toHaveLength(1));
+      expect(within(region).queryByRole("img")).toBeNull();
+    });
+
+    it("asks for no cover, and not for the releases, while Cover Art is off", async () => {
+      services = ONE_ON;
+      releases = [releaseId];
+      renderPanel();
+      const region = await panel();
+      await within(region).findByText("Fixed Title");
+      expect(within(region).queryByRole("img")).toBeNull();
+      expect(asked).not.toContain("identify_cover");
+      expect(asked).not.toContain("identify_cover_releases");
+    });
+
+    it("asks for no cover when the kept look-up has no release", async () => {
+      services = COVER_ONLY;
+      releases = [];
+      renderPanel();
+      const region = await panel();
+      await within(region).findByText("Fixed Title");
+      await waitFor(() => expect(asked).toContain("identify_cover_releases"));
+      expect(asked).not.toContain("identify_cover");
+      expect(within(region).queryByText(tx("identify:lookUp.cover.none"))).toBeNull();
+    });
+
+    it("stops saying it is looking once the cover has arrived", async () => {
+      services = COVER_ONLY;
+      releases = [releaseId];
+      cover = { kind: "image", mime: "image/jpeg", data: "QUJD" };
+      renderPanel();
+      const region = await panel();
+      expect(await within(region).findByRole("img")).toBeVisible();
+      expect(within(region).queryByText(tx("identify:lookUp.cover.loading"))).toBeNull();
+    });
+
+    it("draws nothing when the archive has no cover", async () => {
+      services = COVER_ONLY;
+      releases = [releaseId];
+      cover = { kind: "noCover" };
+      renderPanel();
+      const region = await panel();
+      await waitFor(() => expect(coverAsks).toHaveLength(1));
+      await waitFor(() => expect(within(region).queryByText(tx("identify:lookUp.cover.loading"))).toBeNull());
+      expect(within(region).queryByRole("img")).toBeNull();
+      expect(within(region).queryByText(tx("identify:lookUp.cover.none"))).toBeNull();
+    });
+
+    it("says only 'No cover found' when fetching the cover failed", async () => {
+      services = COVER_ONLY;
+      releases = [releaseId];
+      cover = { kind: "failed", reason: "offline" };
+      renderPanel();
+      const region = await panel();
+      expect(await within(region).findByText(tx("identify:lookUp.cover.none"))).toBeVisible();
+      expect(within(region).queryByRole("alert")).toBeNull();
+    });
+  });
+
+  describe("the Discogs credit", () => {
+    const DISCOGS: IdentifySource = { kind: "online", service: DISCOGS_SERVICE, via: null };
+    const credit = () => tx("identify:lookUp.discogsCredit");
+
+    it("shows 'Data provided by Discogs' when a shown suggestion came from Discogs", async () => {
+      suggestions = { ...suggestions, fields: [field("Label", null, [{ value: "Some Label", sources: [TAGS, DISCOGS] }])] };
+      renderPanel();
+      expect(await within(await panel()).findByText(credit())).toBeVisible();
+    });
+
+    it("shows no credit when no shown suggestion came from Discogs", async () => {
+      suggestions = { ...suggestions, fields: [field("Label", null, [{ value: "Some Label", sources: [ONLINE, TAGS] }])] };
+      renderPanel();
+      const region = await panel();
+      await within(region).findByText("Some Label");
+      expect(within(region).queryByText(credit())).toBeNull();
+    });
+
+    it("shows the credit as plain text, with no link", async () => {
+      suggestions = { ...suggestions, fields: [field("Label", null, [{ value: "Some Label", sources: [DISCOGS] }])] };
+      renderPanel();
+      const region = await panel();
+      await within(region).findByText(credit());
+      expect(within(region).queryByRole("link")).toBeNull();
+    });
+  });
+
+  it("labels MusicBrainz with no service leading to it as a name search, and Discogs as Discogs", async () => {
+    const musicBrainz = MUSICBRAINZ_SERVICE;
+    const acoustId = "Service Two";
+    suggestions = {
+      ...suggestions,
+      fields: [
+        field("Label", null, [{ value: "By Name", sources: [{ kind: "online", service: musicBrainz, via: null }] }]),
+        field("Year", null, [{ value: "2019", sources: [{ kind: "online", service: DISCOGS_SERVICE, via: null }] }]),
+        field("Album", null, [{ value: "By Print", sources: [{ kind: "online", service: musicBrainz, via: acoustId }] }]),
+      ],
+    };
+    renderPanel();
+    const region = await panel();
+    const row = (value: string) => within(region).getByText(value).closest("li") as HTMLElement;
+    await within(region).findByText("By Name");
+    expect(within(row("By Name")).getByText(tx("identify:lookUp.source.nameSearch", { service: musicBrainz }))).toBeVisible();
+    expect(within(row("2019")).getByText(tx("identify:lookUp.source.online", { service: DISCOGS_SERVICE }))).toBeVisible();
+    expect(within(row("By Print")).getByText(tx("identify:lookUp.source.onlineVia", { service: musicBrainz, via: acoustId }))).toBeVisible();
   });
 });

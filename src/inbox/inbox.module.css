@@ -185,3 +185,11 @@
 .skipped ul {
   margin: 0;
 }
+
+/* What the online look-up made of a file: one quiet line under its row. */
+.identified {
+  margin: 0;
+  padding-top: var(--space-1);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
