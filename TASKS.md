@@ -134,7 +134,7 @@ In [TASKS-archive.md](TASKS-archive.md).
 
 ### Run 6C Undo and leftovers (owner 2026-11-09: "start the run now", budget about 5 weekly points, started at 61%)
 - **U** Undo of a big operation (1cD perf list item 8, audit B3; high risk): an Undo of a 100,000-track operation holds up to 362 MiB and takes 2.5 to 8 s, because every log row of the operation is loaded at once. Stream it in pieces; the result must be identical. Opus builder, Fable review with mutations.
-- **L** leftovers from reviews: a test for a bundle marker that can't be deleted (4B); the startup check's page cache given back even when reading its size fails, tested through the startup path (6B P3 review).
+- ✅ **L** (PR 246; foreman diff check; the bundle behaviour was already right, test only) leftovers from reviews: a test for a bundle marker that can't be deleted (4B); the startup check's page cache given back even when reading its size fails, tested through the startup path (6B P3 review).
 
 ### Stage 1cE: Go public 👤
 - **Owner decision 2026-11-05: the owner's review work moves later.** P1 (wording and formatting), installer 0.1.8, the 1c checkpoint (1cE-1) and the owner's remaining 1cD-2 checks wait until the owner takes a deep dive; Phase 2 goes ahead meanwhile with plain, barebones wording and interface (strings stay proposed; the Editor's rule stands: warnings, data loss and rekordbox steps go to the owner first).
