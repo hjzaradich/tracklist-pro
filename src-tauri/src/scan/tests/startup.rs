@@ -141,6 +141,77 @@ fn a_library_with_nothing_due_queues_nothing() {
     assert_eq!((failed, kinds(&queued)), (0, Vec::<&str>::new()));
 }
 
+/// Every due check the startup asks on a read connection, as one answer
+/// each (reachable folders not given).
+fn answers(c: &rusqlite::Connection) -> Vec<bool> {
+    vec![
+        crate::quality::due(c, None).unwrap(),
+        crate::matching::any_due(c).unwrap(),
+        crate::grouping::any_ungrouped(c).unwrap(),
+        crate::grouping::decide_due(c).unwrap(),
+        crate::file_roles::any_due(c).unwrap(),
+    ]
+}
+
+#[test]
+fn a_check_with_the_larger_page_cache_gives_the_same_answers_on_a_due_and_a_not_due_library() {
+    use crate::jobs::startup::RoomyCache;
+    let (_dir, _volume, _db, writer) = scanned();
+    let reads = ReadPool::open(writer.guarded_path()).unwrap();
+    let both = |reads: &ReadPool| {
+        reads
+            .read(|c| {
+                let plain = answers(c);
+                let roomy = {
+                    let _cache = RoomyCache::on(c);
+                    answers(c)
+                };
+                Ok((plain, roomy))
+            })
+            .unwrap()
+    };
+    // Nothing due: the chain has been through this library.
+    let (plain, roomy) = both(&reads);
+    assert_eq!(plain, roomy);
+    assert!(plain.iter().all(|due| !due), "{plain:?}");
+    // Made due: no measurement and no comparison for any file.
+    writer
+        .call(|c| {
+            c.execute_batch(
+                "DELETE FROM file_quality;
+                 DELETE FROM fingerprint_matched;
+                 DELETE FROM grouping_file;",
+            )
+        })
+        .unwrap();
+    let (plain, roomy) = both(&reads);
+    assert_eq!(plain, roomy);
+    // Quality and matching are due now; the others read other tables.
+    assert!(plain[..2].iter().all(|due| *due), "{plain:?}");
+}
+
+#[test]
+fn a_check_gives_its_connection_back_with_the_page_cache_size_it_had() {
+    use crate::jobs::startup::{RoomyCache, CHECK_CACHE_KIB};
+    let (_dir, _volume, _db, writer) = scanned();
+    let reads = ReadPool::open(writer.guarded_path()).unwrap();
+    let size =
+        |c: &rusqlite::Connection| c.query_row("PRAGMA cache_size", [], |r| r.get::<_, i64>(0));
+    let (before, during, after) = reads
+        .read(|c| {
+            let before = size(c)?;
+            let during = {
+                let _cache = RoomyCache::on(c);
+                size(c)?
+            };
+            Ok((before, during, size(c)?))
+        })
+        .unwrap();
+    assert_eq!(during, -CHECK_CACHE_KIB);
+    assert_eq!(after, before);
+    assert_ne!(during, before);
+}
+
 #[test]
 fn the_genre_model_is_asked_for_at_startup_only_while_the_audio_model_is_on() {
     use crate::settings::{write_feature_enabled, Feature};
@@ -606,6 +677,18 @@ fn a_write_on_the_writer_is_not_blocked_while_a_startup_check_is_held_open() {
 /// ```text
 /// cargo test --lib -- --ignored --nocapture what_the_startup_checks_cost
 /// ```
+///
+/// Run 6B P3 (debug build, a laptop with other builds running, so compare
+/// only runs made back to back). The whole step with nothing due, at SQLite's
+/// default 2 MB page cache then with the checks' 64 MB
+/// (`jobs::startup::CHECK_CACHE_KIB`): 3.8 s to 1.8 s, the quality check
+/// 2.9 s to 0.47 s. On a quiet machine the step was 6.1 s at the default.
+/// The query plan was already a single pass (an index scan of `file` with
+/// primary-key lookups into `file_quality` and `file_stage`); the time was
+/// the lookups missing the 2 MB cache on an 83 MB database. The roles pass
+/// with nothing due, after a read that changed nothing, costs 0.00 s at
+/// 100,000 files (`tests/file_roles_scale.rs`, `a_library_of_100k`, "idle
+/// run"), so nothing was changed there.
 #[test]
 #[ignore = "a measurement, printed"]
 fn what_the_startup_checks_cost_on_100k_files_with_nothing_due() {

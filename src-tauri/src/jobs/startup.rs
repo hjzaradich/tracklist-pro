@@ -90,6 +90,47 @@ const ASKS: &[(&str, Ask)] = &[
     ("genre model", ask_genre_model),
 ];
 
+/// The page cache a check may use, in KiB. With nothing due a check looks at
+/// every file once, and at its measurement and stage rows too: about the
+/// whole database. At SQLite's default 2 MB each of those lookups missed the
+/// cache and went back to the file, which was most of the cost (a 100,000
+/// file library: the quality check took 5.7 s at the default and 0.3 s with
+/// 64 MB; a cache that holds a quarter of the database helps little). Memory
+/// is only taken as pages are read, and is given back when the check ends.
+pub(crate) const CHECK_CACHE_KIB: i64 = 64 * 1024;
+
+/// A read connection with [`CHECK_CACHE_KIB`] of page cache for as long as
+/// this is held; the connection's own size is put back, and the extra
+/// memory freed, when it is dropped. It changes nothing a check can see.
+pub(crate) struct RoomyCache<'c> {
+    conn: &'c Connection,
+    before: Option<i64>,
+}
+
+impl<'c> RoomyCache<'c> {
+    /// If the connection won't take the setting, the check just runs at its
+    /// own size: slower, not wrong.
+    pub(crate) fn on(conn: &'c Connection) -> Self {
+        let before = conn
+            .query_row("PRAGMA cache_size", [], |r| r.get::<_, i64>(0))
+            .ok();
+        let set = conn.pragma_update(None, "cache_size", -CHECK_CACHE_KIB);
+        RoomyCache {
+            conn,
+            before: before.filter(|_| set.is_ok()),
+        }
+    }
+}
+
+impl Drop for RoomyCache<'_> {
+    fn drop(&mut self) {
+        if let Some(before) = self.before {
+            let _ = self.conn.pragma_update(None, "cache_size", before);
+            let _ = self.conn.execute_batch("PRAGMA shrink_memory");
+        }
+    }
+}
+
 /// What the asks share.
 pub(crate) struct Asking<'a> {
     writer: &'a Writer,
@@ -114,6 +155,7 @@ impl Asking<'_> {
     ) -> Result<T, DbError> {
         self.reads.read(|c| {
             (self.in_check)();
+            let _roomy = RoomyCache::on(c);
             check(c)
         })
     }
