@@ -128,7 +128,7 @@ In [TASKS-archive.md](TASKS-archive.md).
 - **F2** own Comments and Composer indexed and shown as yours (like L1).
 - **F3** 5B loose ends: the "Genre set to …" line keyed per track; one rounding for the What's next percent; "Your genres" empty line says why; generic audio-model names ("House music") map to a genre tree node.
 - **F4** "Find it…" also for a folder gone from a drive that is connected (4.1).
-- **T1** the theme control moves from the top bar into Settings (owner 2026-11-09).
+- ✅ **T1** (PR 237; diff review) the theme control moves from the top bar into Settings (owner 2026-11-09).
 - All new wording is proposed, for the owner's deep dive.
 
 ### Stage 1cE: Go public 👤
