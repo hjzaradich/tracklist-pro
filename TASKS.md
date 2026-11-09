@@ -124,7 +124,7 @@ In [TASKS-archive.md](TASKS-archive.md).
 
 ### Run 6B Speed and loose ends (owner 2026-11-09: "go", overnight, budget about 10-12 weekly points, started at 54%)
 - **Speed (1cD perf list, items 6, 7 and 9):** P1 the cold first scan (try more read threads); P2 the search index built from nothing; P3 the startup checks with nothing due, and the roles pass after every rekordbox read. Measured on synthetic data only, before and after; results must not change. Item 8 (Undo of a big operation, high risk) waits for a run while the owner is around.
-- **F1** 6A backend loose ends: the Discogs switch re-checked as the token is stored; the test mock store for integration tests; catalogue number from file tags; credit split no longer on "/", ";", "+"; tests that a resolved conflict, a merge and the pre-send take-in mark the track due for Name/Artist/Album/Remixer/Label.
+- ✅ **F1** (PR 238; Fable review 6/6, clean; two low notes go to F2: the mock-store test writes before it knows it has the mock, and the tag catalogue reader takes the first value only) 6A backend loose ends: the Discogs switch re-checked as the token is stored; the test mock store for integration tests; catalogue number from file tags; credit split no longer on "/", ";", "+"; tests that a resolved conflict, a merge and the pre-send take-in mark the track due for Name/Artist/Album/Remixer/Label.
 - **F2** own Comments and Composer indexed and shown as yours (like L1).
 - **F3** 5B loose ends: the "Genre set to …" line keyed per track; one rounding for the What's next percent; "Your genres" empty line says why; generic audio-model names ("House music") map to a genre tree node.
 - **F4** "Find it…" also for a folder gone from a drive that is connected (4.1).
