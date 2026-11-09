@@ -6,7 +6,7 @@ import { DEFAULT_THEME, syncThemeToDocument, useThemeStore, type Theme } from ".
 import { tx } from "../test/tx";
 import "./tokens.css";
 
-// A sample screen (Overview, inside the app shell) rendered in both themes,
+// A sample screen (Settings, inside the app shell) rendered in both themes,
 // with the styles jsdom applies to it: which color tokens the screen's own
 // rules use, and what each token resolves to on the element that uses it.
 
@@ -68,9 +68,9 @@ describe("a sample screen in both themes", () => {
 
   async function renderIn(theme: Theme) {
     const user = userEvent.setup();
-    const { container } = renderApp("/overview");
-    await screen.findByRole("heading", { level: 1, name: tx("shell:stages.overview") });
-    // Switched the way a user does it, with the theme switch in the top bar.
+    const { container } = renderApp("/settings");
+    await screen.findByRole("heading", { level: 1, name: tx("settings:title") });
+    // Switched the way a user does it, with the theme switch in Settings.
     await user.click(screen.getByRole("radio", { name: theme === "dark" ? tx("theme:dark") : tx("theme:light") }));
     return { container, user };
   }

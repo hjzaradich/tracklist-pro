@@ -9,6 +9,7 @@ import { AudioModelRow } from "./AudioModelRow";
 import { LocalKeyRow } from "./LocalKeyRow";
 import { RekordboxDatabaseRow } from "./RekordboxDatabaseRow";
 import { OnlineServicesRows } from "./OnlineServicesRows";
+import { ThemeSwitch } from "../theme/ThemeSwitch";
 import { UpdateChecksRow } from "./UpdateChecksRow";
 import { WishlistFeatureRow } from "./WishlistFeatureRow";
 import styles from "./settings.module.css";
@@ -23,6 +24,7 @@ export function SettingsScreen() {
   const { t: tg } = useTranslation("genre");
   const rekordboxId = useId();
   const { t: tw } = useTranslation("wishlist");
+  const appearanceId = useId();
   const featuresId = useId();
   const genresId = useId();
   const { t: tu } = useTranslation("updates");
@@ -42,6 +44,14 @@ export function SettingsScreen() {
             </h2>
             <EnergyStarsRow />
             <RekordboxDatabaseRow />
+          </section>
+          <section className={styles.panel} aria-labelledby={appearanceId}>
+            <h2 id={appearanceId} className={styles.panelTitle}>
+              {t("appearance.title")}
+            </h2>
+            <div className={styles.row}>
+              <ThemeSwitch />
+            </div>
           </section>
           <section className={styles.panel} aria-labelledby={featuresId}>
             <h2 id={featuresId} className={styles.panelTitle}>

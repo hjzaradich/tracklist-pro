@@ -9,6 +9,10 @@
     "where": "Settings screen, panel heading.",
     "approved": "rekordbox"
   },
+  "appearance.title": {
+    "purpose": "Heading of the panel that holds the look of the app (the theme).",
+    "where": "Settings screen, panel heading, after the rekordbox panel."
+  },
   "energyStars.label": {
     "purpose": "Label of the switch that sends energy to rekordbox as the star rating. It never changes with the state.",
     "where": "Settings screen, rekordbox panel, the switch's label.",

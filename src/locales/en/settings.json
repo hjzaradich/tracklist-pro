@@ -3,6 +3,9 @@
   "rekordbox": {
     "title": "rekordbox"
   },
+  "appearance": {
+    "title": "Appearance"
+  },
   "energyStars": {
     "label": "Send energy to rekordbox as Rating",
     "helpOff": "Each send will set Rating in rekordbox from your tracks' energy (1 and 2 are one star, up to 9 and 10 for five)",

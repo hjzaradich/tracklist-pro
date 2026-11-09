@@ -6,7 +6,7 @@ import {
   createRouter,
   Outlet,
 } from "@tanstack/react-router";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { useContext } from "react";
 import { I18nContext, useTranslation } from "react-i18next";
 import { describe, expect, it } from "vitest";
@@ -55,10 +55,10 @@ describe("app providers", () => {
     expect(screen.getByRole("navigation", { name: tx("shell:stages.label") })).toBeInTheDocument();
   });
 
-  it("keep the theme switch reachable from the top bar", async () => {
-    renderApp("/");
-    const topBar = await screen.findByRole("banner");
-    expect(within(topBar).getByRole("radiogroup", { name: tx("theme:label") })).toBeInTheDocument();
+  it("keep the theme switch reachable from Settings", async () => {
+    renderApp("/settings");
+    await screen.findByRole("heading", { level: 1, name: tx("settings:title") });
+    expect(screen.getByRole("radiogroup", { name: tx("theme:label") })).toBeInTheDocument();
   });
 
   it("give routed components query results through TanStack Query", async () => {

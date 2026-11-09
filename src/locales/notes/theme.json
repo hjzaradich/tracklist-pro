@@ -1,17 +1,17 @@
 {
   "label": {
     "purpose": "Name of the theme switch.",
-    "where": "Top bar, theme switch (its visible label and accessible name).",
+    "where": "Settings screen, Appearance panel, theme switch (its visible label and accessible name).",
     "approved": "Theme"
   },
   "dark": {
     "purpose": "Option for the dark theme.",
-    "where": "Top bar, theme switch.",
+    "where": "Settings screen, Appearance panel, theme switch.",
     "approved": "Dark"
   },
   "light": {
     "purpose": "Option for the light theme.",
-    "where": "Top bar, theme switch.",
+    "where": "Settings screen, Appearance panel, theme switch.",
     "approved": "Light"
   }
 }
