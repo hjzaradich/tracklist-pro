@@ -93,7 +93,17 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graph
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 
+[features]
+# Makes `Credentials::native()` give the in-memory mock store, as it does in
+# unit tests (`cfg(test)`), which integration tests under tests/ do not get.
+# Never in a release build: only the dev-dependency below turns it on.
+test-store = []
+
 [dev-dependencies]
+# Integration tests (tests/*.rs) compile the library without `cfg(test)`; this
+# line gives them the mock password store (see `test-store` above), so no test
+# can reach a real OS store.
+tracklist-pro = { path = ".", features = ["test-store"] }
 tauri = { version = "2", features = ["test"] }
 serde_json = "1"
 tempfile = "3"
