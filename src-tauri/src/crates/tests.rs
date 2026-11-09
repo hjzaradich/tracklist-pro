@@ -1367,6 +1367,49 @@ fn crate_add_and_undo_cost_at_100000_tracks() {
     );
 }
 
+/// Run 6C U: only the add by track id of 100,000 tracks from outside the
+/// Library and its Undo, so the peak printed after the Undo is the Undo's
+/// own (the process's peak only goes up; in the test above, earlier steps
+/// can hide it). Prints; asserts nothing about time or memory. Run alone, in
+/// a release build:
+/// `cargo test --release --lib undo_of_an_outside_add_cost -- --ignored --nocapture`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn undo_of_an_outside_add_cost_at_100000_tracks() {
+    use std::time::Instant;
+    let mib = crate::ops::history_tests::peak_working_set_mib;
+    let lib = library_of_100000_and_100000_outside();
+    println!("peak memory after building the library: {} MiB", mib());
+    let id = lib.made("Big");
+    let outside: Vec<i64> = (100_001..=200_000).collect();
+    let started = Instant::now();
+    let added = lib.add_recordings(id, &outside).unwrap();
+    let changes: i64 = lib
+        .writer
+        .call(|c| {
+            c.query_row(
+                "SELECT count(*) FROM change
+                 WHERE operation_id = (SELECT max(id) FROM operation)",
+                [],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    println!(
+        "add by track id of 100000 from outside the Library: {:?} (added {}, {changes} change rows); peak {} MiB",
+        started.elapsed(),
+        added.added,
+        mib()
+    );
+    let started = Instant::now();
+    lib.undo();
+    println!(
+        "Undo of that add: {:?}; peak {} MiB",
+        started.elapsed(),
+        mib()
+    );
+}
+
 #[test]
 fn removing_tracks_takes_them_out_of_the_crate_only_and_skips_those_not_in_it() {
     let lib = Lib::new();
