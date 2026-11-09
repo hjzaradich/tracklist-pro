@@ -132,8 +132,8 @@ In [TASKS-archive.md](TASKS-archive.md).
 - ✅ **T1** (PR 237; diff review) the theme control moves from the top bar into Settings (owner 2026-11-09).
 - All new wording is proposed, for the owner's deep dive.
 
-### Run 6C Undo and leftovers (owner 2026-11-09: "start the run now", budget about 5 weekly points, started at 61%)
-- **U** Undo of a big operation (1cD perf list item 8, audit B3; high risk): an Undo of a 100,000-track operation holds up to 362 MiB and takes 2.5 to 8 s, because every log row of the operation is loaded at once. Stream it in pieces; the result must be identical. Opus builder, Fable review with mutations.
+### Run 6C ✅ Undo and leftovers (owner 2026-11-09: "start the run now", budget about 5 weekly points, started at 61%; PRs 246, 247)
+- ✅ **U** (PR 247; Fable review 6/6, approve; the old Undo kept in tests as an oracle; reads the log 1,000 rows at a time; not measured: the release test build took over 45 minutes and was cancelled for the 0.1.12 installer; known caveat: when an automatic operation ran since, its rows are still read at once) Undo of a big operation (1cD perf list item 8, audit B3; high risk): an Undo of a 100,000-track operation holds up to 362 MiB and takes 2.5 to 8 s, because every log row of the operation is loaded at once. Stream it in pieces; the result must be identical. Opus builder, Fable review with mutations.
 - ✅ **L** (PR 246; foreman diff check; the bundle behaviour was already right, test only) leftovers from reviews: a test for a bundle marker that can't be deleted (4B); the startup check's page cache given back even when reading its size fails, tested through the startup path (6B P3 review).
 
 ### Stage 1cE: Go public 👤
