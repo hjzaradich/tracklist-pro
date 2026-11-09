@@ -2184,7 +2184,7 @@ fn build(lib: &Lib, count: i64) {
              WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {count})
              INSERT INTO file (id, music_folder_id, rel_path, rel_path_key, duration_ms, raw_tags)
              SELECT n.i, 1, 'f' || n.i || '.mp3', 'f' || n.i || '.mp3', 1000 + (n.i % 7) * 1000,
-                    json_object('id3v2', (SELECT json_group_array(json(x)) FROM (
+                    json_object('id3v2', json((SELECT json_group_array(json(x)) FROM (
                         SELECT json_object('key', 'TIT2', 'value',
                                            json_object('type', 'text', 'text', 'Track ' || n.i)) AS x
                         UNION ALL
@@ -2201,7 +2201,7 @@ fn build(lib: &Lib, count: i64) {
                         WHERE n.i % 3 <> 0 AND n.i % 5 <> 0
                         UNION ALL
                         SELECT json_object('key', 'GEOB:Serato Markers2', 'value',
-                                           json_object('type', 'binary', 'len', 600)))))
+                                           json_object('type', 'binary', 'len', 600))))))
              FROM n;
              INSERT INTO recording_file (recording_id, file_id, role)
              SELECT id, id, 'best' FROM recording;
