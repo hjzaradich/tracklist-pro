@@ -4,6 +4,7 @@ import type {
   InboxCount,
   InboxFilter,
   InboxItem,
+  InboxLookupStatus,
   InboxOutcome,
   InboxRefusal,
   Label,
@@ -80,7 +81,8 @@ const BY_LABEL: Record<Label, keyof LabelCounts> = {
  * the five actions, each recording what it was asked (`calls`) and moving
  * the items on. `refused` makes an item's actions refuse with that reason;
  * `lowBitrate` makes adding an item need the go-ahead until it is confirmed;
- * `skipOnAddAll` is what "Add all" leaves out.
+ * `skipOnAddAll` is what "Add all" leaves out; `lookUps` are the look-up
+ * statuses of the files asked about.
  */
 export function inboxBackend(options: {
   items: InboxItem[];
@@ -90,12 +92,15 @@ export function inboxBackend(options: {
   lowBitrate?: Record<number, number>;
   skipOnAddAll?: Skipped[];
   doneForYou?: DoneForYou[];
+  /** Where each file's online look-up stands; a file not listed has no status. */
+  lookUps?: InboxLookupStatus[];
 }) {
   const state = {
     items: options.items,
     folders: options.folders ?? [],
     calls: [] as { cmd: string; args: Record<string, unknown> }[],
     nextOperation: 1,
+    lookUps: options.lookUps ?? [],
   };
   const called = (cmd: string) => state.calls.filter((call) => call.cmd === cmd);
 
@@ -130,6 +135,10 @@ export function inboxBackend(options: {
         case "inbox_items": {
           const filter = args.filter as InboxFilter;
           return fresh().filter((item) => filter.label == null || item.label === filter.label);
+        }
+        case "identify_inbox_status": {
+          const wanted = args.fileIds as number[];
+          return state.lookUps.filter((status) => wanted.includes(status.fileId));
         }
         case "inbox_done_for_you":
           return options.doneForYou ?? [];

@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import type { InboxItem } from "../bindings";
+import type { InboxItem, InboxLookupStatus } from "../bindings";
+import { IdentifiedLine } from "../identify/IdentifiedLine";
 import { PlayButton } from "../player/PlayButton";
 import { fileNameOf, reasonText } from "./inboxText";
 import type { Result } from "./inboxText";
@@ -18,19 +19,23 @@ export type RowAction = "add" | "addAnyway" | "notNow" | "hide" | "clear";
  * One Inbox file: its name, label and the reason for it, and the actions
  * its label allows. A file still being checked has none; a better file can
  * be set aside or hidden (Upgrade comes later); a file already in the
- * Library can be cleared.
+ * Library can be cleared. Under it a quiet line says what the online look-up
+ * made of the file, if it has run (no Use: the file has no track yet).
  */
 export function InboxRow({
   item,
   busy,
   result,
   names,
+  lookUp,
   onAct,
 }: {
   item: InboxItem;
   busy: boolean;
   result: Result | undefined;
   names: ReadonlyMap<number, string>;
+  /** Where the file's online look-up stands; none until it is known. */
+  lookUp: InboxLookupStatus | undefined;
   onAct: (action: RowAction) => void;
 }) {
   const { t } = useTranslation("inbox");
@@ -55,6 +60,7 @@ export function InboxRow({
           {item.label === "already_have" && button("clear", t("action.clear"))}
         </span>
       </div>
+      <IdentifiedLine status={lookUp} className={styles.identified} />
       {result && (
         <ResultLine
           result={result}

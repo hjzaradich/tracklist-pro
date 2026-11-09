@@ -286,5 +286,57 @@
   "lookUp.catalogueNote": {
     "purpose": "Says the catalogue number stays in the app.",
     "where": "Look up panel, in Track details. Under the rows, when a catalogue number is suggested."
+  },
+  "inboxLine.looking": {
+    "purpose": "Says the file's online look-up is waiting or running.",
+    "where": "Inbox, under a file's row. While the look-up is waiting or running."
+  },
+  "inboxLine.identified": {
+    "purpose": "Says what the file was identified as, when no source is known.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.identifiedFrom": {
+    "purpose": "Says what the file was identified as (artist, title, version) and where that came from.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.found_one": {
+    "purpose": "Says one detail was found when no artist or title was.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.found_other": {
+    "purpose": "Says several details were found when no artist or title was.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.nothing": {
+    "purpose": "Says the look-up found nothing.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.nothingWhy": {
+    "purpose": "Says the look-up found nothing, and why.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.failed": {
+    "purpose": "Says the look-up failed.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.failedWhy": {
+    "purpose": "Says the look-up failed, and why.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.skipped": {
+    "purpose": "Says the look-up was skipped.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.skippedWhy": {
+    "purpose": "Says the look-up was skipped, and why.",
+    "where": "Inbox, under a file's row. "
+  },
+  "inboxLine.nameJoin": {
+    "purpose": "The separator between the artist and the title.",
+    "where": "Inbox, inside the identified line."
+  },
+  "inboxLine.mix": {
+    "purpose": "Wraps the version after the title.",
+    "where": "Inbox, inside the identified line."
   }
 }

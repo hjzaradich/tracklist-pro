@@ -86,5 +86,20 @@
       "altAlbum": "Front cover of {{album}}"
     },
     "catalogueNote": "The app keeps the catalogue number. It isn't sent to rekordbox."
+  },
+  "inboxLine": {
+    "looking": "Looking this file up...",
+    "identified": "Identified: {{name}}",
+    "identifiedFrom": "Identified: {{name}}. Source: {{source}}",
+    "found_one": "Found {{count}} detail online",
+    "found_other": "Found {{count}} details online",
+    "nothing": "Nothing found online",
+    "nothingWhy": "Nothing found online: {{reason}}",
+    "failed": "The look-up failed",
+    "failedWhy": "The look-up failed: {{reason}}",
+    "skipped": "The look-up was skipped",
+    "skippedWhy": "The look-up was skipped: {{reason}}",
+    "nameJoin": " – ",
+    "mix": " ({{mix}})"
   }
 }

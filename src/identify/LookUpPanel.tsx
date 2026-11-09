@@ -16,10 +16,10 @@ import { useOnlineServicesStatus } from "../settings/useOnlineServices";
 import { useSelectedTrack } from "../shell/selectedTrack";
 import { useWhenUndone } from "../shell/undoneStore";
 import styles from "./LookUpPanel.module.css";
+import { reasonText, sourcesText, type T } from "./lookUpText";
 import {
   DISCOGS_SERVICE,
   IDENTIFY_QUERY_KEY,
-  MUSICBRAINZ_SERVICE,
   useIdentifySuggestions,
   useCover,
   useCoverReleases,
@@ -29,26 +29,6 @@ import {
   useOnlineLookupAvailable,
   useUseSuggestions,
 } from "./useIdentify";
-
-type T = ReturnType<typeof useTranslation<"identify">>["t"];
-
-/** The reasons the app has words for; any other code is shown as it is. */
-const REASONS = [
-  "services_off",
-  "acoustid_off",
-  "musicbrainz_off",
-  "key_missing",
-  "no_fingerprint",
-  "no_match",
-  "no_details",
-  "offline",
-  "busy",
-  "refused",
-  "bad_reply",
-  "failed",
-] as const;
-type Reason = (typeof REASONS)[number];
-const isReason = (code: string): code is Reason => (REASONS as readonly string[]).includes(code);
 
 /**
  * "Look up" in the Details panel (ROADMAP 2.2): what the app suggests for the
@@ -316,33 +296,6 @@ function FieldRow({
   );
 }
 
-/** Every source in plain words, each once. */
-function sourcesText(sources: IdentifySource[], t: T): string {
-  return [...new Set(sources.map((source) => sourceText(source, t)))].join(t("lookUp.sourceSeparator"));
-}
-
-function sourceText(source: IdentifySource, t: T): string {
-  switch (source.kind) {
-    case "tags":
-      return t("lookUp.source.tags");
-    case "fileName":
-      return t("lookUp.source.fileName");
-    case "sibling":
-      return t("lookUp.source.sibling");
-    case "online":
-      if (source.via !== null && source.via !== "") {
-        return t("lookUp.source.onlineVia", { service: source.service, via: source.via });
-      }
-      // MusicBrainz with no service leading to it is the search by name.
-      return source.service === MUSICBRAINZ_SERVICE
-        ? t("lookUp.source.nameSearch", { service: source.service })
-        : t("lookUp.source.online", { service: source.service });
-    default:
-      // A source this build doesn't know: say what the data says.
-      return t("lookUp.source.other", { kind: (source as { kind: string }).kind });
-  }
-}
-
 /** The online sources behind the suggestions, for "Found ... from X". */
 function onlineSources(data: IdentifySuggestions | undefined, t: T): string {
   if (data === undefined) return "";
@@ -378,10 +331,6 @@ function statusLine(status: IdentifyLookupStatus | null | undefined, data: Ident
     default:
       return "";
   }
-}
-
-function reasonText(code: string, t: T): string {
-  return isReason(code) ? t(`lookUp.reason.${code}`) : t("lookUp.reason.other", { code });
 }
 
 /** A time from the app in the user's own way of writing it. The app's times are UTC, with or without the zone marked. */

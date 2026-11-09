@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useWhenJobsEnd } from "../activity/useWhenJobsEnd";
 import { unwrap } from "../api/errors";
 import { reloadLists } from "../app/lists";
 import {
   commands,
   type CoverAnswer,
   type IdentifyChoice,
+  type InboxLookupStatus,
   type IdentifyLookupStatus,
   type IdentifySuggestions,
   type LibraryTrackId,
@@ -124,4 +126,21 @@ export function useOnlineLookupAvailable(): boolean | undefined {
   const status = useOnlineServicesStatus().data;
   if (status === undefined) return undefined;
   return status.musicBrainz || (status.acoustId.on && !status.acoustId.keyMissing) || status.discogs.on;
+}
+
+/**
+ * Where the look-up of each of these Inbox files stands, and what it
+ * identified them as. Asked for again whenever a background job ends (a
+ * look-up job finishing is the moment this changes), straight away through
+ * the identification key. No ids, no request.
+ */
+export function useInboxLookupStatuses(fileIds: number[]) {
+  const queryClient = useQueryClient();
+  useWhenJobsEnd(() => void queryClient.invalidateQueries({ queryKey: [...IDENTIFY_QUERY_KEY, "inboxStatus"] }));
+  return useQuery({
+    queryKey: [...IDENTIFY_QUERY_KEY, "inboxStatus", fileIds],
+    queryFn: async (): Promise<Map<number, InboxLookupStatus>> =>
+      new Map((await unwrap(commands.identifyInboxStatus(fileIds))).map((status) => [status.fileId, status])),
+    enabled: fileIds.length > 0,
+  });
 }
