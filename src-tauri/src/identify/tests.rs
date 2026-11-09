@@ -35,6 +35,16 @@ fn frames(items: &[(&str, &str)]) -> String {
     serde_json::json!({ "id3v2": items }).to_string()
 }
 
+/// `raw_tags` with these text frames in `block` (`id3v2`, `mp4_ilst`,
+/// `vorbis_comments`).
+fn frames_in(block: &str, items: &[(&str, &str)]) -> String {
+    let items: Vec<_> = items
+        .iter()
+        .map(|(key, text)| serde_json::json!({"key": key, "value": {"type": "text", "text": text}}))
+        .collect();
+    serde_json::json!({ block: items }).to_string()
+}
+
 impl Track {
     fn raw_tags(&self, file: i64, raw: String) {
         self.lib
@@ -422,8 +432,17 @@ fn a_track_that_is_not_in_the_library_has_no_suggestions() {
 }
 
 #[test]
-fn a_catalogue_number_in_the_file_name_is_suggested_and_none_comes_from_tags() {
+fn a_catalogue_number_in_the_file_name_is_suggested_from_the_name_alone_when_the_tags_have_none() {
     let t = track("Kit - Velo [ROOK001].mp3");
+    // Tags with other frames, none of them a catalogue number.
+    t.raw_tags(
+        t.file,
+        frames(&[
+            ("TIT2", "Velo"),
+            ("TXXX:CATALOGUE", "NOT-IT"),
+            ("TPUB", "Rook"),
+        ]),
+    );
     assert_eq!(
         t.field(IdentifyField::CatalogueNumber),
         (
@@ -436,6 +455,87 @@ fn a_catalogue_number_in_the_file_name_is_suggested_and_none_comes_from_tags() {
             )]
         )
     );
+}
+
+#[test]
+fn a_catalogue_number_in_the_tags_is_suggested_for_id3_vorbis_and_mp4() {
+    let cases = [
+        ("id3v2", "TXXX:CATALOGNUMBER"),
+        ("vorbis_comments", "CATALOGNUMBER"),
+        // Vorbis keys are case-insensitive, and a tagger may write either.
+        ("vorbis_comments", "catalognumber"),
+        ("mp4_ilst", "----:com.apple.iTunes:CATALOGNUMBER"),
+    ];
+    for (block, key) in cases {
+        let t = track("a.mp3");
+        t.raw_tags(t.file, frames_in(block, &[(key, " ROOK042 ")]));
+        assert_eq!(
+            t.field(IdentifyField::CatalogueNumber),
+            (
+                None,
+                vec![(
+                    "ROOK042".to_owned(),
+                    vec![IdentifySource::Tags {
+                        file: t.named(t.file, "a.mp3")
+                    }]
+                )]
+            ),
+            "{block} {key}"
+        );
+    }
+}
+
+#[test]
+fn a_catalogue_number_the_tags_and_the_file_name_share_is_one_suggestion_with_two_sources() {
+    let t = track("Kit - Velo [ROOK042].mp3");
+    t.raw_tags(
+        t.file,
+        frames(&[("TXXX:CATALOGNUMBER", "ROOK042"), ("TIT2", "Velo")]),
+    );
+    let file = t.named(t.file, "Kit - Velo [ROOK042].mp3");
+    assert_eq!(
+        t.field(IdentifyField::CatalogueNumber).1,
+        vec![(
+            "ROOK042".to_owned(),
+            vec![
+                IdentifySource::Tags { file: file.clone() },
+                IdentifySource::FileName { file }
+            ]
+        )]
+    );
+}
+
+#[test]
+fn a_catalogue_number_in_a_sibling_files_tags_is_suggested_as_the_siblings() {
+    let t = track("Kit - Velo.mp3");
+    let other = t.sibling("b.flac");
+    t.raw_tags(
+        other,
+        frames_in("vorbis_comments", &[("CATALOGNUMBER", "ROOK7")]),
+    );
+    assert_eq!(
+        t.field(IdentifyField::CatalogueNumber).1,
+        vec![(
+            "ROOK7".to_owned(),
+            vec![IdentifySource::Sibling {
+                file: t.named(other, "b.flac")
+            }]
+        )]
+    );
+}
+
+#[test]
+fn an_empty_or_cut_short_catalogue_number_in_the_tags_is_not_suggested() {
+    let t = track("a.mp3");
+    t.raw_tags(t.file, frames(&[("TXXX:CATALOGNUMBER", "   ")]));
+    assert!(t.field(IdentifyField::CatalogueNumber).1.is_empty());
+    t.raw_tags(
+        t.file,
+        r#"{"id3v2": [{"key": "TXXX:CATALOGNUMBER",
+            "value": {"type": "text", "text": "ROOK", "full_len": 90000}}]}"#
+            .to_owned(),
+    );
+    assert!(t.field(IdentifyField::CatalogueNumber).1.is_empty());
 }
 
 #[test]
