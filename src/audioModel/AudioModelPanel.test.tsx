@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
-import type { AudioModelStatus, Guesses, SoundsLike, YourGenre } from "../bindings";
+import type { AudioModelStatus, Guesses, SoundsLike, YourGenre, YourGenresReason } from "../bindings";
 import "../i18n";
 import { useSelectedTrack } from "../shell/selectedTrack";
 import { tableRow } from "../test/trackTableIpc";
@@ -27,6 +27,8 @@ let status: AudioModelStatus;
 let guesses: Guesses;
 let similar: SoundsLike;
 let yours: YourGenre[];
+/** Why the list is empty, when it is. */
+let whyNone: YourGenresReason;
 /** When set, set_genre refuses with this error. */
 let refusal: unknown;
 let asked: string[];
@@ -48,6 +50,7 @@ beforeEach(() => {
   guesses = READY_GUESSES;
   similar = { state: "ready", tracks: [] };
   yours = [];
+  whyNone = "nothingStrongEnough";
   refusal = null;
   asked = [];
   setGenre = [];
@@ -61,7 +64,7 @@ beforeEach(() => {
         setGenre.push(args);
         return 7;
       case "audio_model_your_genres":
-        return yours;
+        return { genres: yours, reason: yours.length === 0 ? whyNone : "found" };
       case "audio_model_status":
         return status;
       case "audio_model_guesses":
@@ -262,9 +265,17 @@ describe("AudioModelPanel", () => {
       for (const genre of YOURS) expect(within(panel).queryByRole("button", { name: buttonName(genre.name) })).toBeNull();
     });
 
-    it("says there is no guess from your genres, and what the model needs, when the list is empty", async () => {
+    it.each<[YourGenresReason, string]>([
+      ["switchOff", "audioModel:yourGenres.none.switchOff"],
+      ["notInLibrary", "audioModel:yourGenres.none.notInLibrary"],
+      ["noModelYet", "audioModel:yourGenres.none.noModelYet"],
+      ["noFingerprintYet", "audioModel:yourGenres.none.noFingerprintYet"],
+      ["nothingStrongEnough", "audioModel:yourGenres.none.nothingStrongEnough"],
+      ["couldntBeRead", "audioModel:yourGenres.none.couldntBeRead"],
+    ])("says why there is no guess from your genres when the reason is %s", async (reason, key) => {
+      whyNone = reason;
       renderPanel();
-      expect(await screen.findByText(tx("audioModel:yourGenres.none"))).toBeVisible();
+      expect(await screen.findByText(tx(key))).toBeVisible();
       expect(screen.queryByRole("list", { name: tx("audioModel:yourGenres.title") })).toBeNull();
     });
 

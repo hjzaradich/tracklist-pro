@@ -51,9 +51,29 @@
     "purpose": "Says these guesses are the model's opinion, learned from the user's own genres, and that the percent is how sure the model is (not a chance).",
     "where": "Audio model section, under the Your genres heading."
   },
-  "yourGenres.none": {
-    "purpose": "Says the model has no guess from the user's own genres for this track and names what it needs to learn them (the command doesn't say which reason applies).",
-    "where": "Audio model section, under the Your genres heading, when the list is empty."
+  "yourGenres.none.switchOff": {
+    "purpose": "Says the Your genres list is empty because the audio model switch is off.",
+    "where": "Audio model section, under the Your genres heading, when the switch is off."
+  },
+  "yourGenres.none.notInLibrary": {
+    "purpose": "Says the Your genres list is empty because only Library tracks are listened to.",
+    "where": "Audio model section, under the Your genres heading, for a track outside the Library."
+  },
+  "yourGenres.none.noModelYet": {
+    "purpose": "Says the model has not learned the user's genres yet and what it needs (2 genres with at least 10 tracks each), or that its model is for another version.",
+    "where": "Audio model section, under the Your genres heading, when no genre model is stored for the current audio model."
+  },
+  "yourGenres.none.noFingerprintYet": {
+    "purpose": "Says the Your genres list is empty because the track has not been listened to yet.",
+    "where": "Audio model section, under the Your genres heading, for a Library track the audio model hasn't reached."
+  },
+  "yourGenres.none.nothingStrongEnough": {
+    "purpose": "Says the model heard the track and none of the user's genres is a strong enough match (under 30 percent).",
+    "where": "Audio model section, under the Your genres heading, for a listened track."
+  },
+  "yourGenres.none.couldntBeRead": {
+    "purpose": "Says what the model kept for the track, or the learned model, couldn't be read.",
+    "where": "Audio model section, under the Your genres heading, when a stored result is unusable or the track failed."
   },
   "similar.title": {
     "purpose": "Heading of the list of Library tracks the audio model hears as close to the selected one.",

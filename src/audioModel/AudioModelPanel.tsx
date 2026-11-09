@@ -178,10 +178,12 @@ function YourGenres({ row }: { row: TableRow }) {
         </p>
       )}
       {genres.isPending && <p className={styles.quiet}>{t("loading")}</p>}
-      {genres.data !== undefined && genres.data.length === 0 && <p className={styles.quiet}>{t("yourGenres.none")}</p>}
-      {genres.data !== undefined && genres.data.length > 0 && (
+      {genres.data !== undefined && genres.data.genres.length === 0 && (
+        <p className={styles.quiet}>{t(`yourGenres.none.${genres.data.reason === "found" ? "nothingStrongEnough" : genres.data.reason}`)}</p>
+      )}
+      {genres.data !== undefined && genres.data.genres.length > 0 && (
         <ul aria-labelledby={headingId} className={styles.genreGuesses}>
-          {genres.data.map((genre: YourGenre) => {
+          {genres.data.genres.map((genre: YourGenre) => {
             const usable = libraryTrackId !== null && row.genre?.trim() !== genre.name.trim();
             return (
               <li key={genre.node} className={styles.genreGuess}>

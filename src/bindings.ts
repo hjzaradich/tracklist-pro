@@ -42,7 +42,7 @@ export const commands = {
 	 *  The genres of yours the audio model hears in a track, from the model it
 	 *  learned from your own tracks. Reads only; never loads the audio model.
 	 */
-	audioModelYourGenres: (recordingId: number) => typedError<YourGenre[], IpcError>(__TAURI_INVOKE("audio_model_your_genres", { recordingId })),
+	audioModelYourGenres: (recordingId: number) => typedError<YourGenres, IpcError>(__TAURI_INVOKE("audio_model_your_genres", { recordingId })),
 	/**
 	 *  The Library tracks that sound most like a track, by the audio model's
 	 *  fingerprints. Reads only; never loads the model.
@@ -5023,6 +5023,40 @@ export type YourGenre = {
 	/**  0 to 100. */
 	percent: number,
 };
+
+/**  Your genres the model hears in a track, with the reason when there are none. */
+export type YourGenres = {
+	/**  At most [`MOST_GENRES`], best first. */
+	genres: YourGenre[],
+	/**  `Found` exactly when `genres` is not empty. */
+	reason: YourGenresReason,
+};
+
+/**
+ *  Why [`YourGenres`] is what it is: `Found` when there is something to show,
+ *  otherwise the one thing the empty line should say.
+ */
+export type YourGenresReason = 
+/**  There are genres to show. */
+"found" | 
+/**  The audio model switch is off. */
+"switchOff" | 
+/**  Only Library tracks are listened to. */
+"notInLibrary" | 
+/**
+ *  The model has not learned your genres yet (or learned them for another
+ *  embedding model).
+ */
+"noModelYet" | 
+/**  The track has no current fingerprint yet. */
+"noFingerprintYet" | 
+/**
+ *  The model heard the track, and no genre of yours is at least
+ *  [`THRESHOLD`] sure.
+ */
+"nothingStrongEnough" | 
+/**  The track's result or the learned model can't be read. */
+"couldntBeRead";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

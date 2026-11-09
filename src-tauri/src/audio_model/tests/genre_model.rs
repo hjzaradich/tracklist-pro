@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use super::super::genre_model::{
     self, fit, learn, learn_job, logit, request, your_genres, GenreLearner, Interrupted, Learned,
-    Sample, Stopped, MIN_TRACKS, PRIORITY,
+    Sample, Stopped, YourGenresReason, MIN_TRACKS, PRIORITY,
 };
 use super::super::ledger::{self, Outcome};
 use super::super::subset::{self, SUBSET_LEN};
@@ -275,9 +275,19 @@ impl Crate {
             .writer
             .call(move |c| Ok(your_genres(c, recording)))
             .unwrap()
+            .genres
             .into_iter()
             .map(|g| (g.name, g.percent))
             .collect()
+    }
+
+    /// Why the list is what it is.
+    fn why(&self, recording: i64) -> YourGenresReason {
+        self.lib
+            .writer
+            .call(move |c| Ok(your_genres(c, recording)))
+            .unwrap()
+            .reason
     }
 
     fn names(&self, recording: i64) -> Vec<String> {
@@ -672,6 +682,81 @@ fn at_most_three_genres_are_named_and_only_from_thirty_percent() {
         vec![("Just in".to_string(), 30)],
         "30% is in, 29% is out"
     );
+}
+
+#[test]
+fn an_empty_list_says_why_for_each_reason_and_a_full_one_says_found() {
+    let mut c = crate_of(&[12, 12]);
+    let heard = c.untagged("Unknown", 0);
+
+    // No model yet: nothing learned.
+    assert_eq!(c.why(heard), YourGenresReason::NoModelYet);
+    assert_eq!(c.learn(), Learned::Genres(2));
+    assert_eq!(c.why(heard), YourGenresReason::Found);
+
+    // A model of another embedding model is no model.
+    c.lib.exec(
+        "UPDATE genre_model SET model_id = 'ced-tiny@00000000/labels0', signature = 'old';
+         UPDATE genre_model_node SET model_id = 'ced-tiny@00000000/labels0';",
+    );
+    assert_eq!(c.why(heard), YourGenresReason::NoModelYet);
+    assert_eq!(c.learn(), Learned::Genres(2));
+    assert_eq!(c.why(heard), YourGenresReason::Found);
+
+    // The track is in the Library but has not been listened to.
+    let (waiting, file) = c.lib.track(Some("Waiting"), None, "Waiting.mp3");
+    c.lib.library(waiting, file);
+    c.lib.settle();
+    assert_eq!(c.why(waiting), YourGenresReason::NoFingerprintYet);
+
+    // A track that is not in the Library is not listened to.
+    let (outside, _) = c.lib.track(Some("Outside"), None, "Outside.mp3");
+    assert_eq!(c.why(outside), YourGenresReason::NotInLibrary);
+
+    // What was stored for the track can't be read.
+    let not_a_number: Vec<u8> = [f32::NAN; EMBEDDING_LEN]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    c.lib
+        .writer
+        .call(move |conn| conn.execute("UPDATE embedding SET fingerprint = ?1", [not_a_number]))
+        .unwrap();
+    assert_eq!(c.why(heard), YourGenresReason::CouldntBeRead);
+    c.lib.exec("DELETE FROM embedding");
+    let model = subset::model_id();
+    c.lib
+        .writer
+        .call(move |conn| {
+            conn.execute(
+                "UPDATE file SET audio_hash = ?1 WHERE id = ?2",
+                (vec![0x42u8; 34], file),
+            )?;
+            conn.execute(
+                "INSERT INTO embedding_failure (file_id, audio_hash, model_id, reason)
+                 VALUES (?1, ?2, ?3, 'damaged')",
+                (file, vec![0x42u8; 34], model),
+            )
+        })
+        .unwrap();
+    assert_eq!(c.why(waiting), YourGenresReason::CouldntBeRead);
+
+    // The switch off wins over everything.
+    turn(&c.lib, false);
+    assert_eq!(c.why(heard), YourGenresReason::SwitchOff);
+    assert_eq!(c.why(outside), YourGenresReason::SwitchOff);
+}
+
+#[test]
+fn a_heard_track_with_no_genre_of_yours_sure_enough_says_nothing_was_strong_enough() {
+    let mut c = crate_of(&[12, 12]);
+    assert_eq!(c.learn(), Learned::Genres(2));
+    let heard = c.untagged("Unknown", 0);
+    // A bias far below the threshold, whatever the track.
+    c.lib
+        .exec("UPDATE genre_model_node SET weights = zeroblob(768), bias = -20.0");
+    assert!(c.guesses(heard).is_empty());
+    assert_eq!(c.why(heard), YourGenresReason::NothingStrongEnough);
 }
 
 // ---- The jobs ---------------------------------------------------------------------
