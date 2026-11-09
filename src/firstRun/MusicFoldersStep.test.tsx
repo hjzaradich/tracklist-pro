@@ -19,6 +19,7 @@ function folder(id: number, path: string): MusicFolder {
     watch: false,
     path,
     online: true,
+    folderFound: true,
     volumeLabel: "",
     addedAt: "2026-10-01T10:00:00.000Z",
     walkedAt: null,
@@ -195,7 +196,7 @@ describe("picking music folders", () => {
   });
 
   it("greys out Scan again for a folder whose drive isn't connected, beside the note saying so", async () => {
-    fakeBackend([{ ...folder(1, String.raw`E:\Music`), online: false }]);
+    fakeBackend([{ ...folder(1, String.raw`E:\Music`), online: false, folderFound: false }]);
     renderStep();
     expect(
       await screen.findByRole("button", {
@@ -210,7 +211,7 @@ describe("picking music folders", () => {
   it("points a missing folder at the folder picked with Find it, and says how many files were found", async () => {
     const backend = fakeBackend([
       folder(1, String.raw`E:\Music`),
-      { ...folder(2, String.raw`F:\Gone`), online: false },
+      { ...folder(2, String.raw`F:\Gone`), online: false, folderFound: false },
     ]);
     dialog.open.mockResolvedValue(String.raw`D:\Moved`);
     renderStep();
@@ -227,7 +228,7 @@ describe("picking music folders", () => {
   });
 
   it("says in plain words why Find it was refused", async () => {
-    const backend = fakeBackend([{ ...folder(1, String.raw`F:\Gone`), online: false }]);
+    const backend = fakeBackend([{ ...folder(1, String.raw`F:\Gone`), online: false, folderFound: false }]);
     backend.relocateRefusal = { kind: "relocateTooFewFiles", params: { found: 1, checked: 20 } };
     dialog.open.mockResolvedValue(String.raw`D:\Other`);
     renderStep();

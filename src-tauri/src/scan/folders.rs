@@ -75,6 +75,12 @@ pub struct MusicFolder {
     pub path: String,
     /// Whether its volume is mounted right now.
     pub online: bool,
+    /// Whether the folder itself is there right now: its volume is mounted
+    /// and the folder exists on it (one check per folder, not per file).
+    /// False when the drive is away, and also when the drive is connected but
+    /// the folder was moved, renamed or deleted: both can be pointed at where
+    /// the music is now (4.1, "Find it").
+    pub folder_found: bool,
     /// The volume's label, e.g. `GIG USB`. May be empty.
     pub volume_label: String,
     /// When it was added, UTC ISO-8601.
@@ -318,6 +324,7 @@ fn insert(
         watch,
         path: shown.to_owned(),
         online: true,
+        folder_found: true,
         volume_label: volume.label.clone(),
         added_at,
         walked_at: None,
@@ -359,11 +366,11 @@ impl StoredFolder {
     /// The folder for the frontend, placed under its volume's mount point
     /// now, or under the last one if the volume is offline.
     pub fn to_music_folder(&self, volumes: &impl Volumes) -> MusicFolder {
-        let (path, online) = match self.stored_path().resolve(volumes) {
-            Ok(abs) => (display_path(&abs), true),
+        let (path, online, folder_found) = match self.stored_path().resolve(volumes) {
+            Ok(abs) => (display_path(&abs), true, abs.is_dir()),
             Err(_) => {
                 let mount = self.last_mount_path.clone().unwrap_or_default();
-                (under_mount(Path::new(&mount), &self.rel), false)
+                (under_mount(Path::new(&mount), &self.rel), false, false)
             }
         };
         MusicFolder {
@@ -372,6 +379,7 @@ impl StoredFolder {
             watch: self.watch,
             path,
             online,
+            folder_found,
             volume_label: self.volume_label.clone(),
             added_at: self.added_at.clone(),
             walked_at: self.walked_at.clone(),

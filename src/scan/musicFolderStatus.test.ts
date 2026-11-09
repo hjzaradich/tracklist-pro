@@ -11,6 +11,7 @@ function folder(fields: Partial<MusicFolder> = {}): MusicFolder {
     watch: false,
     path: String.raw`E:\DJ Music`,
     online: true,
+    folderFound: true,
     volumeLabel: "GIG USB",
     addedAt: "2026-09-29T10:00:00.000Z",
     walkedAt: "2026-09-29T10:05:00.000Z",
@@ -30,9 +31,14 @@ describe("what a music folder says about itself", () => {
   });
 
   it("says its drive isn't connected, naming the drive, and nothing else", () => {
-    const offline = folder({ online: false, unreadableFolders: 3, onlineOnlyFiles: 2 });
+    const offline = folder({ online: false, folderFound: false, unreadableFolders: 3, onlineOnlyFiles: 2 });
     expect(words(offline)).toEqual([tx("musicFolderStatus:offlineNamed", { label: "GIG USB" })]);
-    expect(words(folder({ online: false, volumeLabel: "" }))).toEqual([tx("musicFolderStatus:offline")]);
+    expect(words(folder({ online: false, folderFound: false, volumeLabel: "" }))).toEqual([tx("musicFolderStatus:offline")]);
+  });
+
+  it("says the folder was not found when its drive is connected and it isn't on it, and nothing else", () => {
+    const gone = folder({ folderFound: false, unreadableFolders: 3, onlineOnlyFiles: 2 });
+    expect(words(gone)).toEqual([tx("musicFolderStatus:folderNotFound")]);
   });
 
   it("says it hasn't been scanned until a scan has walked it", () => {

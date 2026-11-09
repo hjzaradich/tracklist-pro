@@ -2925,6 +2925,14 @@ export type MusicFolder = {
 	path: string,
 	/**  Whether its volume is mounted right now. */
 	online: boolean,
+	/**
+	 *  Whether the folder itself is there right now: its volume is mounted
+	 *  and the folder exists on it (one check per folder, not per file).
+	 *  False when the drive is away, and also when the drive is connected but
+	 *  the folder was moved, renamed or deleted: both can be pointed at where
+	 *  the music is now (4.1, "Find it").
+	 */
+	folderFound: boolean,
 	/**  The volume's label, e.g. `GIG USB`. May be empty. */
 	volumeLabel: string,
 	/**  When it was added, UTC ISO-8601. */

@@ -15,6 +15,7 @@ function folder(fields: Partial<MusicFolder> = {}): MusicFolder {
     watch: false,
     path: String.raw`E:\Music`,
     online: true,
+    folderFound: true,
     volumeLabel: "",
     addedAt: "2026-09-29T10:00:00.000Z",
     walkedAt: null,
@@ -74,7 +75,7 @@ describe("the music folders query", () => {
     const { result } = renderHook(() => useMusicFolders(), { wrapper });
     await waitFor(() => expect(result.current.data?.[0].online).toBe(true));
 
-    answer = [folder({ online: false })];
+    answer = [folder({ online: false, folderFound: false })];
     await act(() => emit("volumes-changed", null));
     await waitFor(() => expect(result.current.data?.[0].online).toBe(false));
   });

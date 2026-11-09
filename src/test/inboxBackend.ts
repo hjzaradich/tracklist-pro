@@ -57,6 +57,7 @@ export function inboxFolder(id: number, path: string): MusicFolder {
     watch: true,
     path,
     online: true,
+    folderFound: true,
     volumeLabel: "",
     addedAt: "2026-10-01T10:00:00.000Z",
     walkedAt: null,

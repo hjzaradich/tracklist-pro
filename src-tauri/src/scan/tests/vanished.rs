@@ -532,3 +532,26 @@ fn finishing_a_walk_skips_every_folder_whose_listing_broke_off() {
         ])
     );
 }
+
+#[test]
+fn the_list_says_whether_the_folder_itself_is_there_not_only_whether_its_drive_is() {
+    let (_dir, volume, music) = drive();
+    put(&music, "a.mp3", b"a");
+    let (_db, writer, _reads) = db();
+    add_music(&writer, &volume, &music);
+    scan(&writer, &volume);
+    let folder = || writer.call(|c| stored(c)).unwrap().remove(0);
+
+    let there = folder().to_music_folder(&volume);
+    assert!((there.online, there.folder_found) == (true, true));
+
+    // The drive stays connected; the folder is renamed or deleted.
+    std::fs::remove_dir_all(&music).unwrap();
+    let gone = folder().to_music_folder(&volume);
+    assert!((gone.online, gone.folder_found) == (true, false));
+
+    // A drive that is away has no folder to find either, and is offline too.
+    volume.set_online(false);
+    let away = folder().to_music_folder(&volume);
+    assert!((away.online, away.folder_found) == (false, false));
+}
