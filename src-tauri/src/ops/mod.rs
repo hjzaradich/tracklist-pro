@@ -69,7 +69,7 @@
 
 mod schema;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::rc::Rc;
 
@@ -923,26 +923,80 @@ struct Net {
     after: Option<String>,
 }
 
-/// The changes of one operation, oldest first.
-fn changes_of(tx: &Transaction<'_>, operation: i64) -> Result<Vec<ChangeRow>, OpsError> {
-    let mut stmt = tx.prepare(
-        "SELECT entity, entity_id, action, field, before, after FROM change
-         WHERE operation_id = ?1 ORDER BY id",
-    )?;
-    let rows = stmt.query_map([operation], |r| {
-        Ok(ChangeRow {
-            entity: r.get(0)?,
-            entity_id: r.get(1)?,
-            action: r.get(2)?,
-            field: r.get(3)?,
-            before: r.get(4)?,
-            after: r.get(5)?,
-        })
-    })?;
-    Ok(rows.collect::<Result<_, _>>()?)
+/// How many `change` rows Undo reads at a time. An operation is read in
+/// pieces of this size, never all at once, so what Undo holds stays small
+/// however big the operation is (adding 100,000 tracks logs over a million
+/// rows). Each piece is found by the change's id, which the index on the
+/// operation holds.
+const UNDO_PIECE: usize = 1_000;
+
+/// The changes of one operation, read a piece at a time, oldest first or
+/// newest first.
+struct ChangePieces {
+    operation: i64,
+    newest_first: bool,
+    piece: usize,
+    /// The id of the last change read; none before the first piece.
+    last: Option<i64>,
+    /// Whether a piece came up short: nothing is left then.
+    done: bool,
 }
 
-/// [`unwind`] for a user's operation, with the automatic operations made
+impl ChangePieces {
+    fn new(operation: i64, newest_first: bool, piece: usize) -> ChangePieces {
+        ChangePieces {
+            operation,
+            newest_first,
+            piece: piece.max(1),
+            last: None,
+            done: false,
+        }
+    }
+
+    /// Appends the next piece to `into`. Returns whether more may follow:
+    /// false once every change of the operation is read.
+    fn read_into(
+        &mut self,
+        tx: &Transaction<'_>,
+        into: &mut Vec<ChangeRow>,
+    ) -> Result<bool, OpsError> {
+        if self.done {
+            return Ok(false);
+        }
+        let (sql, from) = if self.newest_first {
+            (
+                "SELECT id, entity, entity_id, action, field, before, after FROM change
+                 WHERE operation_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3",
+                self.last.unwrap_or(i64::MAX),
+            )
+        } else {
+            (
+                "SELECT id, entity, entity_id, action, field, before, after FROM change
+                 WHERE operation_id = ?1 AND id > ?2 ORDER BY id LIMIT ?3",
+                self.last.unwrap_or(i64::MIN),
+            )
+        };
+        let mut stmt = tx.prepare_cached(sql)?;
+        let mut rows = stmt.query(params![self.operation, from, self.piece as i64])?;
+        let mut read = 0;
+        while let Some(r) = rows.next()? {
+            self.last = Some(r.get(0)?);
+            into.push(ChangeRow {
+                entity: r.get(1)?,
+                entity_id: r.get(2)?,
+                action: r.get(3)?,
+                field: r.get(4)?,
+                before: r.get(5)?,
+                after: r.get(6)?,
+            });
+            read += 1;
+        }
+        self.done = read < self.piece;
+        Ok(!self.done)
+    }
+}
+
+/// [`unwind_in`] for a user's operation, with the automatic operations made
 /// since on the rows it changed ([`automatic_since`]): the rows end up as
 /// they were before the user's operation, and all of those operations are
 /// marked undone. If anything stands in the way, the whole undo is refused
@@ -964,20 +1018,77 @@ fn unwind_with_automatic(
     tx: &Transaction<'_>,
     operation: &OperationInfo,
 ) -> Result<Found, OpsError> {
+    unwind_with_automatic_in(tx, operation, UNDO_PIECE)
+}
+
+/// [`unwind_with_automatic`], reading the log `piece` rows at a time (a
+/// test reads it in pieces of every size).
+fn unwind_with_automatic_in(
+    tx: &Transaction<'_>,
+    operation: &OperationInfo,
+    piece: usize,
+) -> Result<Found, OpsError> {
     let automatic = automatic_since(tx, operation)?;
     if automatic.is_empty() {
-        return unwind(tx, operation, &HashMap::new());
+        return unwind_in(tx, operation, &HashMap::new(), piece);
     }
-    // Oldest first.
+    // Their changes, oldest first, folded into one net change per field as
+    // they are read. Every change is read even once one turns out not to be
+    // a set, as when they were read all at once.
+    let mut found = Found::default();
+    let mut keys: Vec<FieldKey> = Vec::new();
+    let mut net: HashMap<FieldKey, Net> = HashMap::new();
+    let mut only_sets = true;
     let mut theirs: Vec<ChangeRow> = Vec::new();
     for op in automatic.iter().rev() {
-        theirs.extend(changes_of(tx, op.id)?);
+        let mut pieces = ChangePieces::new(op.id, false, piece);
+        loop {
+            theirs.clear();
+            let more = pieces.read_into(tx, &mut theirs)?;
+            for change in &theirs {
+                only_sets &= change.action == "set";
+                if !only_sets {
+                    continue;
+                }
+                let key = (
+                    change.entity.clone(),
+                    change.entity_id,
+                    change.field.clone(),
+                );
+                match net.get_mut(&key) {
+                    Some(n) => {
+                        if n.after != change.before {
+                            found.conflicts.push(conflict(
+                                change,
+                                Some(&change.field),
+                                ConflictProblem::ChangedSince,
+                            ));
+                        }
+                        n.after.clone_from(&change.after);
+                    }
+                    None => {
+                        keys.push(key.clone());
+                        net.insert(
+                            key,
+                            Net {
+                                before: change.before.clone(),
+                                after: change.after.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+            if !more {
+                break;
+            }
+        }
     }
+    drop(theirs);
     // An automatic operation that made or deleted rows has no net change
     // per field: those are taken back one after the other, newest first.
-    if theirs.iter().any(|c| c.action != "set") {
+    if !only_sets {
         for op in &automatic {
-            let found = unwind(tx, op, &HashMap::new())?;
+            let found = unwind_in(tx, op, &HashMap::new(), piece)?;
             if !found.conflicts.is_empty() {
                 return Ok(Found {
                     conflicts: found.conflicts,
@@ -985,53 +1096,49 @@ fn unwind_with_automatic(
                 });
             }
         }
-        return unwind(tx, operation, &HashMap::new());
-    }
-
-    let mut found = Found::default();
-    let mut keys: Vec<FieldKey> = Vec::new();
-    let mut net: HashMap<FieldKey, Net> = HashMap::new();
-    for change in &theirs {
-        let key = (
-            change.entity.clone(),
-            change.entity_id,
-            change.field.clone(),
-        );
-        match net.get_mut(&key) {
-            Some(n) => {
-                if n.after != change.before {
-                    found.conflicts.push(conflict(
-                        change,
-                        Some(&change.field),
-                        ConflictProblem::ChangedSince,
-                    ));
-                }
-                n.after.clone_from(&change.after);
-            }
-            None => {
-                keys.push(key.clone());
-                net.insert(
-                    key,
-                    Net {
-                        before: change.before.clone(),
-                        after: change.after.clone(),
-                    },
-                );
-            }
-        }
+        return unwind_in(tx, operation, &HashMap::new(), piece);
     }
     if !found.conflicts.is_empty() {
         return Ok(found);
     }
 
-    // What the user's operation wrote itself.
-    let mine = changes_of(tx, operation.id)?;
+    // What the user's operation wrote itself, of the fields they set: the
+    // field (it set it) or the whole row (it inserted it). Read a piece at
+    // a time; only what touches those fields' rows is kept.
+    let (covered_rows, covered_fields) = {
+        let rows: HashSet<(&str, i64)> = keys.iter().map(|k| (k.0.as_str(), k.1)).collect();
+        let mut covered_rows: HashSet<(String, i64)> = HashSet::new();
+        let mut covered_fields: HashSet<FieldKey> = HashSet::new();
+        let mut pieces = ChangePieces::new(operation.id, false, piece);
+        let mut mine: Vec<ChangeRow> = Vec::new();
+        loop {
+            mine.clear();
+            let more = pieces.read_into(tx, &mut mine)?;
+            for c in mine.drain(..) {
+                if !rows.contains(&(c.entity.as_str(), c.entity_id)) {
+                    continue;
+                }
+                match c.action.as_str() {
+                    "insert" => {
+                        covered_rows.insert((c.entity, c.entity_id));
+                    }
+                    "set" => {
+                        let key = (c.entity, c.entity_id, c.field);
+                        if net.contains_key(&key) {
+                            covered_fields.insert(key);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if !more {
+                break;
+            }
+        }
+        (covered_rows, covered_fields)
+    };
     let covered = |key: &FieldKey| {
-        mine.iter().any(|c| {
-            c.entity == key.0
-                && c.entity_id == key.1
-                && (c.action == "insert" || (c.action == "set" && c.field == key.2))
-        })
+        covered_fields.contains(key) || covered_rows.contains(&(key.0.clone(), key.1))
     };
     let mut schema = SchemaCache::default();
     let mut taken_to_hold: HashMap<FieldKey, Option<String>> = HashMap::new();
@@ -1085,7 +1192,7 @@ fn unwind_with_automatic(
         });
     }
 
-    let found = unwind(tx, operation, &taken_to_hold)?;
+    let found = unwind_in(tx, operation, &taken_to_hold, piece)?;
     if !found.conflicts.is_empty() {
         return Ok(found);
     }
@@ -1148,57 +1255,66 @@ impl Found {
 /// `taken_to_hold` names fields that are taken to hold another value than
 /// the database has: what they held before the automatic operations since
 /// ([`unwind_with_automatic`], which has checked what they hold now).
-fn unwind(
+///
+/// The log is read `piece` rows at a time ([`UNDO_PIECE`]), newest first;
+/// only the rows not unwound yet are held, never the whole operation.
+fn unwind_in(
     tx: &Transaction<'_>,
     operation: &OperationInfo,
     taken_to_hold: &HashMap<FieldKey, Option<String>>,
+    piece: usize,
 ) -> Result<Found, OpsError> {
-    let changes: Vec<ChangeRow> = {
-        let mut stmt = tx.prepare(
-            "SELECT entity, entity_id, action, field, before, after FROM change
-             WHERE operation_id = ?1 ORDER BY id DESC",
-        )?;
-        let rows = stmt.query_map([operation.id], |r| {
-            Ok(ChangeRow {
-                entity: r.get(0)?,
-                entity_id: r.get(1)?,
-                action: r.get(2)?,
-                field: r.get(3)?,
-                before: r.get(4)?,
-                after: r.get(5)?,
-            })
-        })?;
-        rows.collect::<Result<_, _>>()?
-    };
-
     // Newest first, so changes made in sequence within the operation (insert
     // a row, then set one of its fields) unwind in reverse. Each step first
     // checks the database still holds what the operation left.
     let mut found = Found::default();
     let mut schema = SchemaCache::default();
-    let mut i = 0;
-    while i < changes.len() {
-        let change = &changes[i];
-        // A row's insert or delete is one change per field, logged together.
-        let run = changes[i..]
-            .iter()
-            .take_while(|c| {
-                change.action != "set"
-                    && c.action == change.action
-                    && c.entity == change.entity
-                    && c.entity_id == change.entity_id
-            })
-            .count()
-            .max(1);
-        let group = &changes[i..i + run];
-        let table = schema.table(tx, &change.entity)?;
-        match change.action.as_str() {
-            "set" => undo_set(tx, &mut schema, &table, change, &mut found, taken_to_hold)?,
-            "insert" => undo_insert(tx, &mut schema, &table, group, &mut found, taken_to_hold)?,
-            "delete" => undo_delete(tx, &table, group, &mut found)?,
-            other => return Err(OpsError::BadAction(other.to_owned())),
+    // The crates it changed, for the name check at the end.
+    let mut crates: Vec<i64> = Vec::new();
+    let mut pieces = ChangePieces::new(operation.id, true, piece);
+    // Read and not unwound yet: a run of rows that reaches the end of what
+    // is read may go on in the next piece, so it waits for that piece.
+    let mut changes: Vec<ChangeRow> = Vec::new();
+    loop {
+        let more = pieces.read_into(tx, &mut changes)?;
+        let mut i = 0;
+        while i < changes.len() {
+            let change = &changes[i];
+            // A row's insert or delete is one change per field, logged
+            // together.
+            let run = changes[i..]
+                .iter()
+                .take_while(|c| {
+                    change.action != "set"
+                        && c.action == change.action
+                        && c.entity == change.entity
+                        && c.entity_id == change.entity_id
+                })
+                .count()
+                .max(1);
+            if more && i + run == changes.len() {
+                break;
+            }
+            let group = &changes[i..i + run];
+            crates.extend(
+                group
+                    .iter()
+                    .filter(|c| c.entity == "crate")
+                    .map(|c| c.entity_id),
+            );
+            let table = schema.table(tx, &change.entity)?;
+            match change.action.as_str() {
+                "set" => undo_set(tx, &mut schema, &table, change, &mut found, taken_to_hold)?,
+                "insert" => undo_insert(tx, &mut schema, &table, group, &mut found, taken_to_hold)?,
+                "delete" => undo_delete(tx, &table, group, &mut found)?,
+                other => return Err(OpsError::BadAction(other.to_owned())),
+            }
+            i += run;
         }
-        i += run;
+        changes.drain(..i);
+        if !more {
+            break;
+        }
     }
     if !found.conflicts.is_empty() {
         return Ok(found);
@@ -1208,11 +1324,6 @@ fn unwind(
     // them, which is looser than the database's own unique index. History
     // alone can't break that (the later crate is undone first); a write
     // outside the log could.
-    let mut crates: Vec<i64> = changes
-        .iter()
-        .filter(|c| c.entity == "crate")
-        .map(|c| c.entity_id)
-        .collect();
     crates.sort_unstable();
     crates.dedup();
     if let Some((id, name)) = crate::crates::name_clash(tx, &crates)? {
