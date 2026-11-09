@@ -23,6 +23,34 @@
 //! index with `prefix='2 3'` instead, to compare. **`a_small_library_goes_through_the_same_steps`**
 //! is the smoke test that runs in CI: the same harness on 2,000 tracks,
 //! checking what came out rather than how long it took.
+//!
+//! ## Run 6B P2: where the index build's time goes (measured, no code change)
+//!
+//! `a_library_of_100k`, release, synthetic, one run on a busy laptop (read
+//! the shares, not the seconds): the index built from nothing took 59.6 s
+//! (a rebuild 59.7 s). Per-step timings added to `settle_page` for the run
+//! (not committed), summed over the 200 pages of 500 tracks:
+//!
+//! - commit of each page (plus the `search_due` delete): about 40 s, two
+//!   thirds, and it grows as the indexes fill;
+//! - `table_row::write`: 10.6 s; `rows_for`: 6.7 s (file names 0.5, fields
+//!   1.9, facts 0.8, genres 0.6, gaps 2.5, doors 0.2); FTS delete and insert:
+//!   1.9 s; the rest is small.
+//!
+//! The commit dominates because `track_row` has about 15 indexes and a page
+//! of 500 rows lands in a different place in each, so a commit rewrites most
+//! of every index into the log. The row work is already cheap; batching it
+//! would save a few seconds. The WAL checkpoint threshold made no difference
+//! beyond noise in a standalone SQLite load of the same table shape.
+//!
+//! The one large lever is to drop `track_row`'s secondary indexes for a
+//! from-nothing build and create them at the end. **An estimate only, not
+//! measured on the app's code:** a Python `sqlite3` load of the same table
+//! shape and 100k rows with no indexes, then creating them, took about 9 s
+//! against 100 s or more with the indexes in place. It was not built: the
+//! lists would be slow while the index builds, and a crash mid-build needs a
+//! recovery path (probably a migration), for a one-time cost (first run or a
+//! rebuild). The foreman decided to leave it (6B).
 
 use std::path::Path;
 use std::time::{Duration, Instant};
