@@ -322,6 +322,31 @@ fn the_seed_gives_the_audio_models_genre_names_their_nodes() {
     assert_eq!(got(&c, "Electronic dance").map(|g| g.1), Some(Rule::Alias));
 }
 
+#[test]
+fn a_name_the_user_already_made_an_alias_keeps_its_node_when_the_seed_loads() {
+    let (_dir, w) = writer();
+    let mine = add(&w, None, "My techno").unwrap();
+    alias_to(&w, mine, "House music").unwrap();
+    w.call(|c| Ok(edit::load_seed(c)))
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let c = w.call(|c| Catalog::load(c)).unwrap();
+    assert_eq!(got(&c, "House music"), Some((mine, Rule::Alias)));
+}
+
+#[test]
+fn a_node_the_user_already_named_like_an_audio_model_genre_keeps_the_name_when_the_seed_loads() {
+    let (_dir, w) = writer();
+    let mine = add(&w, None, "Rhythm and blues").unwrap();
+    w.call(|c| Ok(edit::load_seed(c)))
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let c = w.call(|c| Catalog::load(c)).unwrap();
+    assert_eq!(got(&c, "Rhythm and blues").map(|g| g.0), Some(mine));
+}
+
 // Review's unmapped group.
 
 fn library_track(c: &Connection, id: i64, genre: Option<&str>, title: &str) {

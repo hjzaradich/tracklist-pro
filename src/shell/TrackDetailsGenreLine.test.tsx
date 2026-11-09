@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { act, cleanup, render, screen, } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
@@ -26,7 +26,7 @@ beforeEach(() => {
       case "audio_model_guesses":
         return { state: "ready", genres: [{ key: "houseMusic", percent: 61 }], mood: null };
       case "audio_model_your_genres":
-        return { genres: [], why: "nothingStrongEnough" };
+        return { genres: [], reason: "nothingStrongEnough" };
       case "sounds_like":
         return { state: "ready", tracks: [] };
       case "set_genre":
