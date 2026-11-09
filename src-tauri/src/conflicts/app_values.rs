@@ -403,9 +403,10 @@ pub fn clear(
 
 /// Takes rekordbox's value in for one field: deletes the app's own value,
 /// **outside the operation log** (module docs). Only the merge before a
-/// send calls it, inside its own transaction. A listed field taken in (`Genre`, `Name`, `Artist`,
-/// `Album`, `Remixer`, `Label`) changes what the track shows (`genre::own`), so the track is marked due for the
-/// index, as the log marks it for an operation.
+/// send calls it, inside its own transaction. A listed field taken in
+/// (`Genre`, `Name`, `Artist`, `Album`, `Remixer`, `Label`, `Comments`)
+/// changes what the track shows (`genre::own`), so the track is marked due
+/// for the index, as the log marks it for an operation.
 pub(super) fn take_in(
     conn: &Connection,
     track: LibraryTrackId,

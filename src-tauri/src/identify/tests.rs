@@ -486,45 +486,71 @@ fn a_catalogue_number_in_the_tags_is_suggested_for_id3_vorbis_and_mp4() {
 }
 
 #[test]
-fn a_repeated_or_nul_separated_catalogue_number_is_one_suggestion_like_any_tag() {
-    let cases = [
+fn each_catalogue_number_in_a_repeated_or_nul_separated_tag_is_its_own_suggestion() {
+    let cases: [(&str, Vec<(&str, &str)>, &[&str]); 6] = [
         // ID3v2.4 separates the values of one frame with NUL.
         (
             "id3v2",
-            vec![("TXXX:CATALOGNUMBER", " ROOK1 ROOK2 ")],
-            "ROOK1, ROOK2",
+            vec![("TXXX:CATALOGNUMBER", " ROOK1\0ROOK2 ")],
+            &["ROOK1", "ROOK2"],
         ),
-        ("id3v2", vec![("TXXX:CATALOGNUMBER", " ROOK2")], "ROOK2"),
+        (
+            "id3v2",
+            vec![("TXXX:CATALOGNUMBER", "\0ROOK2\0\0 \0ROOK2")],
+            &["ROOK2"],
+        ),
+        (
+            "mp4_ilst",
+            vec![("----:com.apple.iTunes:CATALOGNUMBER", "ROOK1\0ROOK2")],
+            &["ROOK1", "ROOK2"],
+        ),
         (
             "vorbis_comments",
-            vec![("CATALOGNUMBER", "ROOK1"), ("CATALOGNUMBER", "ROOK2")],
-            "ROOK1, ROOK2",
+            vec![("CATALOGNUMBER", "ROOK2"), ("CATALOGNUMBER", "ROOK1")],
+            &["ROOK2", "ROOK1"],
         ),
         (
             "vorbis_comments",
             vec![("CATALOGNUMBER", "ROOK1"), ("catalognumber", " ROOK1 ")],
-            "ROOK1",
+            &["ROOK1"],
         ),
         (
             "vorbis_comments",
             vec![("CATALOGNUMBER", " "), ("CATALOGNUMBER", "ROOK2")],
-            "ROOK2",
+            &["ROOK2"],
         ),
     ];
     for (block, items, expected) in cases {
         let t = track("a.mp3");
         t.raw_tags(t.file, frames_in(block, &items));
+        let from_tags = IdentifySource::Tags {
+            file: t.named(t.file, "a.mp3"),
+        };
         assert_eq!(
             t.field(IdentifyField::CatalogueNumber).1,
-            vec![(
-                expected.to_owned(),
-                vec![IdentifySource::Tags {
-                    file: t.named(t.file, "a.mp3")
-                }]
-            )],
+            expected
+                .iter()
+                .map(|n| ((*n).to_owned(), vec![from_tags.clone()]))
+                .collect::<Vec<_>>(),
             "{block} {items:?}"
         );
     }
+}
+
+#[test]
+fn a_catalogue_number_from_a_multi_value_tag_matches_the_file_names_number() {
+    let t = track("Kit - Velo [ROOK2].mp3");
+    t.raw_tags(t.file, frames(&[("TXXX:CATALOGNUMBER", "ROOK1\0ROOK2")]));
+    let file = t.named(t.file, "Kit - Velo [ROOK2].mp3");
+    let field = t.field(IdentifyField::CatalogueNumber).1;
+    assert_eq!(field.len(), 2);
+    assert!(field.contains(&(
+        "ROOK2".to_owned(),
+        vec![
+            IdentifySource::Tags { file: file.clone() },
+            IdentifySource::FileName { file }
+        ]
+    )));
 }
 
 #[test]

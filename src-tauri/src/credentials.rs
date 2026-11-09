@@ -98,6 +98,7 @@ impl Credentials {
     /// store's own name without touching an entry. A test that is about to
     /// write a fake secret asks this first, so a build that got a real
     /// store fails before anything is written.
+    #[doc(hidden)]
     pub fn is_in_memory(&self) -> bool {
         self.store
             .as_ref()

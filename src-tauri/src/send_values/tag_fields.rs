@@ -211,14 +211,14 @@ fn genre(text: &str) -> String {
 /// a value is never altered silently, and the writer reports a character
 /// XML can't carry. Values aren't trimmed either (only an all-blank value
 /// is none).
-pub(crate) fn join_values(text: &str) -> Option<String> {
+fn join_values(text: &str) -> Option<String> {
     let parts: Vec<&str> = text.split('\0').filter(|p| !p.trim().is_empty()).collect();
     (!parts.is_empty()).then(|| parts.join(JOIN))
 }
 
 /// `values` joined with [`JOIN`], an exact duplicate left out (a Vorbis
 /// `LABEL` and `ORGANIZATION` holding the same text are one value).
-pub(crate) fn join_distinct(values: &[String]) -> String {
+fn join_distinct(values: &[String]) -> String {
     let mut seen: Vec<&str> = Vec::new();
     for value in values {
         if !seen.contains(&value.as_str()) {

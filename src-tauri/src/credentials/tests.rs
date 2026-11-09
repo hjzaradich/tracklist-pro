@@ -120,6 +120,40 @@ fn the_in_memory_store_says_it_is_one_without_holding_an_entry_and_no_store_does
     assert!(!Credentials::unavailable().is_in_memory());
 }
 
+/// A store that is not the mock, and holds nothing: it must never be taken
+/// for the in-memory store.
+struct NotTheMock;
+
+impl keyring_core::api::CredentialStoreApi for NotTheMock {
+    fn vendor(&self) -> String {
+        "A store that is not the mock".to_owned()
+    }
+
+    fn id(&self) -> String {
+        "not-the-mock".to_owned()
+    }
+
+    fn build(
+        &self,
+        _service: &str,
+        _user: &str,
+        _modifiers: Option<&std::collections::HashMap<&str, &str>>,
+    ) -> Result<keyring_core::Entry, Error> {
+        Err(Error::NoDefaultStore)
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+#[test]
+fn a_store_that_is_not_the_mock_does_not_say_it_is_the_in_memory_store() {
+    let other = Credentials::with_store(Arc::new(NotTheMock));
+    assert!(other.is_available());
+    assert!(!other.is_in_memory());
+}
+
 #[test]
 fn debug_output_shows_whether_there_is_a_store_and_never_a_secret() {
     let store = Credentials::in_memory();

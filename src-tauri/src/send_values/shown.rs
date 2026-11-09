@@ -383,7 +383,9 @@ impl ShownFields {
 /// [`shown`] with the other fields the search index holds, for each Library
 /// track in `ids`. The title and artist are exactly [`shown`]'s. The genre
 /// is the track's own when the user set one (`genre::own`, the app's own
-/// value of `Genre`; blank means none), else the field's as above.
+/// value of `Genre`; blank means none), else the field's as above. The
+/// same goes for the album, remixer, label and comment: the user's own
+/// value of each (`OWN_LISTED_FIELDS`) is the one shown.
 pub fn shown_fields(
     conn: &Connection,
     volumes: &impl Volumes,
