@@ -11,7 +11,9 @@
 //! that contains an existing one, is refused. Otherwise the same file would
 //! be indexed twice under two folders.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{mpsc, Arc};
+use std::time::{Duration, Instant};
 
 use rusqlite::{ffi, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -363,16 +365,26 @@ impl StoredFolder {
         self.stored_path().resolve(volumes).is_ok()
     }
 
-    /// The folder for the frontend, placed under its volume's mount point
-    /// now, or under the last one if the volume is offline.
-    pub fn to_music_folder(&self, volumes: &impl Volumes) -> MusicFolder {
-        let (path, online, folder_found) = match self.stored_path().resolve(volumes) {
-            Ok(abs) => (display_path(&abs), true, abs.is_dir()),
+    /// Where the folder is shown: under its volume's mount point now, or
+    /// under the last one if the volume is offline. Touches no disk beyond
+    /// the volume lookup.
+    pub fn shown_path(&self, volumes: &impl Volumes) -> String {
+        self.placed(volumes).0
+    }
+
+    /// The shown path, and the folder's place on disk when its volume is
+    /// mounted (`None` when it is offline).
+    fn placed(&self, volumes: &impl Volumes) -> (String, Option<PathBuf>) {
+        match self.stored_path().resolve(volumes) {
+            Ok(abs) => (display_path(&abs), Some(abs)),
             Err(_) => {
                 let mount = self.last_mount_path.clone().unwrap_or_default();
-                (under_mount(Path::new(&mount), &self.rel), false, false)
+                (under_mount(Path::new(&mount), &self.rel), None)
             }
-        };
+        }
+    }
+
+    fn build(&self, path: String, online: bool, folder_found: bool) -> MusicFolder {
         MusicFolder {
             id: self.id,
             role: self.role,
@@ -388,6 +400,77 @@ impl StoredFolder {
             online_only_files: self.online_only_files,
         }
     }
+
+    /// The folder for the frontend, with one plain stat for whether the
+    /// folder is there. For tests; the folder list uses [`list_found`],
+    /// which never waits on the disk for long.
+    #[cfg(test)]
+    pub fn to_music_folder(&self, volumes: &impl Volumes) -> MusicFolder {
+        let (path, abs) = self.placed(volumes);
+        let found = abs.as_deref().is_some_and(Path::is_dir);
+        self.build(path, abs.is_some(), found)
+    }
+}
+
+/// How long the folder list waits for the disk to say whether folders are
+/// there before it gives up on the ones that have not answered.
+pub const FOLDER_STAT_DEADLINE: Duration = Duration::from_secs(2);
+
+/// Whether a folder is there. The real one is `Path::is_dir` (links
+/// followed), the same test relocating uses to decide a folder is missing.
+pub type Stat = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
+
+/// The folders for the frontend. Each folder on a mounted drive is asked
+/// about on its own helper thread, all at once, and the list waits at most
+/// `deadline` in all. A folder the disk has not answered for by then (a
+/// network drive that has stopped responding) reads as found: nothing is
+/// offered or disabled on a guess. A folder on an offline drive is never
+/// asked about.
+pub fn list_found(
+    folders: &[StoredFolder],
+    volumes: &impl Volumes,
+    stat: Stat,
+    deadline: Duration,
+) -> Vec<MusicFolder> {
+    let placed: Vec<(String, Option<PathBuf>)> =
+        folders.iter().map(|f| f.placed(volumes)).collect();
+    let (tx, rx) = mpsc::channel();
+    let mut waiting = 0usize;
+    let mut found = vec![true; folders.len()];
+    for (i, (_, abs)) in placed.iter().enumerate() {
+        let Some(abs) = abs else {
+            found[i] = false;
+            continue;
+        };
+        let (tx, stat, abs) = (tx.clone(), stat.clone(), abs.clone());
+        // A thread that cannot start leaves its folder reading as found.
+        let started = std::thread::Builder::new()
+            .name("folder-stat".into())
+            .spawn(move || {
+                let _ = tx.send((i, stat(&abs)));
+            });
+        if started.is_ok() {
+            waiting += 1;
+        }
+    }
+    drop(tx);
+    let end = Instant::now() + deadline;
+    while waiting > 0 {
+        match rx.recv_timeout(end.saturating_duration_since(Instant::now())) {
+            Ok((i, there)) => {
+                found[i] = there;
+                waiting -= 1;
+            }
+            // Out of time (the rest read as found), or every helper is gone.
+            Err(_) => break,
+        }
+    }
+    folders
+        .iter()
+        .zip(placed)
+        .zip(found)
+        .map(|((f, (path, abs)), there)| f.build(path, abs.is_some(), there))
+        .collect()
 }
 
 /// Every music folder, oldest first. Rows whose volume identity, path or
@@ -522,12 +605,20 @@ fn is_foreign_key(e: &rusqlite::Error) -> bool {
 #[tauri::command]
 #[specta::specta]
 pub async fn music_folders(reads: State<'_, ReadPool>) -> Result<Vec<MusicFolder>, IpcError> {
-    let folders = reads.read(stored)?;
-    let volumes = system_volumes();
-    Ok(folders
-        .iter()
-        .map(|f| f.to_music_folder(&volumes))
-        .collect())
+    let reads = reads.inner().clone();
+    // The disk is asked off the async threads, after the database
+    // connection is given back, and never for longer than the deadline.
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<MusicFolder>, IpcError> {
+        let folders = reads.read(stored)?;
+        Ok(list_found(
+            &folders,
+            &system_volumes(),
+            Arc::new(|p: &Path| p.is_dir()),
+            FOLDER_STAT_DEADLINE,
+        ))
+    })
+    .await
+    .map_err(|_| IpcError::new(ErrorKind::Internal))?
 }
 
 /// Adds a music folder and scans it: exactly one scan of it is queued
