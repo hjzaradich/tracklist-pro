@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use super::{Direction, Settings, Signal, Tolerance, Weights, MOST_WEIGHT};
-use crate::audio_model::similar::{likeness_of, Resemblance};
+use crate::audio_model::similar::{likeness_of, percent_of, Resemblance};
 use crate::crates::fit::{tempo_gap, Camelot, TimeFeel, TEMPO_STEPS};
 
 /// The most reasons a result carries.
@@ -550,11 +550,11 @@ fn parts(ask: &Ask, plan: &Plan<'_>, c: &Candidate, names: bool) -> Vec<Part> {
         let beside_a_fact = out.iter().any(|p| p.weight > 0 && p.fitness > 0.0);
         if beside_a_fact {
             // No fingerprint for the candidate: 0, so missing data is no gain.
-            let fitness = cosines
-                .get(&c.id)
-                .map_or(0.0, |&cos| f64::from(likeness_of(cos)));
+            let cosine = cosines.get(&c.id).copied();
+            let fitness = cosine.map_or(0.0, |cos| f64::from(likeness_of(cos)));
             let mut reason = Reason::new(ReasonCode::Similar, fitness);
-            reason.percent = Some((fitness * 100.0).round() as u8);
+            // The percent is the panel's own function, in f32: one rounding for both screens.
+            reason.percent = Some(cosine.map_or(0, percent_of));
             out.push(Part {
                 signal: Some(Signal::Similar),
                 weight: w.similar,

@@ -304,6 +304,49 @@ fn the_seed_is_one_undoable_operation_and_leaves_existing_genres_alone() {
     assert_eq!(tree(&w).len(), 1, "undoing the seed leaves the first genre");
 }
 
+#[test]
+fn the_seed_gives_the_audio_models_genre_names_their_nodes() {
+    let (_dir, w) = writer();
+    w.call(|c| Ok(edit::load_seed(c)))
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let c = w.call(|c| Catalog::load(c)).unwrap();
+    let node_of = |name: &str| got(&c, name).map(|g| g.0);
+    assert!(node_of("House").is_some());
+    assert_eq!(node_of("House music"), node_of("House"));
+    assert_eq!(node_of("Electronic dance"), node_of("Electronic"));
+    assert_eq!(node_of("Electronic dance music"), node_of("Electronic"));
+    assert_eq!(node_of("Rhythm and blues"), node_of("R&B"));
+    assert_eq!(node_of("Disco"), node_of("Funk & Disco"));
+    assert_eq!(got(&c, "Electronic dance").map(|g| g.1), Some(Rule::Alias));
+}
+
+#[test]
+fn a_name_the_user_already_made_an_alias_keeps_its_node_when_the_seed_loads() {
+    let (_dir, w) = writer();
+    let mine = add(&w, None, "My techno").unwrap();
+    alias_to(&w, mine, "House music").unwrap();
+    w.call(|c| Ok(edit::load_seed(c)))
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let c = w.call(|c| Catalog::load(c)).unwrap();
+    assert_eq!(got(&c, "House music"), Some((mine, Rule::Alias)));
+}
+
+#[test]
+fn a_node_the_user_already_named_like_an_audio_model_genre_keeps_the_name_when_the_seed_loads() {
+    let (_dir, w) = writer();
+    let mine = add(&w, None, "Rhythm and blues").unwrap();
+    w.call(|c| Ok(edit::load_seed(c)))
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let c = w.call(|c| Catalog::load(c)).unwrap();
+    assert_eq!(got(&c, "Rhythm and blues").map(|g| g.0), Some(mine));
+}
+
 // Review's unmapped group.
 
 fn library_track(c: &Connection, id: i64, genre: Option<&str>, title: &str) {

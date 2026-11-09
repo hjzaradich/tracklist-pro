@@ -265,8 +265,8 @@ pub(crate) fn likeness_of(cosine: f32) -> f32 {
     cosine.clamp(0.0, 1.0)
 }
 
-/// The percent shown for a cosine.
-fn percent_of(cosine: f32) -> u8 {
+/// The percent shown for a cosine, by the panel and by "What's next" alike.
+pub(crate) fn percent_of(cosine: f32) -> u8 {
     (likeness_of(cosine) * 100.0).round() as u8
 }
 

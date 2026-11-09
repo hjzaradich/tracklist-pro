@@ -13,7 +13,14 @@
   "yourGenres": {
     "title": "Your genres",
     "opinion": "The model's opinion, learned from your own genres. The percent is how sure it is.",
-    "none": "No guess from your genres for this track. It learns once 2 genres have at least 10 tracks each."
+    "none": {
+      "switchOff": "The audio model is off.",
+      "notInLibrary": "Only Library tracks are listened to.",
+      "noModelYet": "No guess yet: it learns your genres once 2 of them have at least 10 tracks each.",
+      "noFingerprintYet": "No guess yet: this track hasn't been listened to.",
+      "nothingStrongEnough": "None of your genres is a strong enough match for this track.",
+      "couldntBeRead": "Couldn't read what the model kept for this track."
+    }
   },
   "similar": {
     "title": "Sounds like",

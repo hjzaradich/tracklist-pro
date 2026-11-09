@@ -51,7 +51,7 @@ use specta::Type;
 use tauri::State;
 
 use super::guess::{MOST_GENRES, THRESHOLD};
-use super::panel::{fingerprint_of, shown, standing, Standing};
+use super::panel::{fingerprint_of, shown, standing, PanelState, Standing};
 use super::subset;
 use super::EMBEDDING_LEN;
 use crate::db::{DbError, ReadPool, Writer};
@@ -639,11 +639,53 @@ pub struct YourGenre {
     pub percent: u8,
 }
 
+/// Why [`YourGenres`] is what it is: `Found` when there is something to show,
+/// otherwise the one thing the empty line should say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum YourGenresReason {
+    /// There are genres to show.
+    Found,
+    /// The audio model switch is off.
+    SwitchOff,
+    /// Only Library tracks are listened to.
+    NotInLibrary,
+    /// The model has not learned your genres yet (or learned them for another
+    /// embedding model).
+    NoModelYet,
+    /// The track has no current fingerprint yet.
+    NoFingerprintYet,
+    /// The model heard the track, and no genre of yours is at least
+    /// [`THRESHOLD`] sure.
+    NothingStrongEnough,
+    /// The track's result or the learned model can't be read.
+    CouldntBeRead,
+}
+
+/// Your genres the model hears in a track, with the reason when there are none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct YourGenres {
+    /// At most [`MOST_GENRES`], best first.
+    pub genres: Vec<YourGenre>,
+    /// `Found` exactly when `genres` is not empty.
+    pub reason: YourGenresReason,
+}
+
+impl YourGenres {
+    fn none(reason: YourGenresReason) -> Self {
+        Self {
+            genres: Vec::new(),
+            reason,
+        }
+    }
+}
+
 fn floats(bytes: &[u8]) -> Option<Vec<f32>> {
     subset::from_blob(bytes).filter(|v| v.len() == EMBEDDING_LEN && v.iter().all(|x| x.is_finite()))
 }
 
-fn guesses_in(conn: &Connection, fingerprint: &[f32]) -> rusqlite::Result<Vec<YourGenre>> {
+fn guesses_in(conn: &Connection, fingerprint: &[f32]) -> rusqlite::Result<YourGenres> {
     let model_id = subset::model_id();
     let state: Option<(Vec<u8>, Vec<u8>)> = conn
         .query_row(
@@ -653,10 +695,10 @@ fn guesses_in(conn: &Connection, fingerprint: &[f32]) -> rusqlite::Result<Vec<Yo
         )
         .optional()?;
     let Some((mean, scale)) = state else {
-        return Ok(Vec::new());
+        return Ok(YourGenres::none(YourGenresReason::NoModelYet));
     };
     let (Some(mean), Some(scale)) = (floats(&mean), floats(&scale)) else {
-        return Ok(Vec::new());
+        return Ok(YourGenres::none(YourGenresReason::CouldntBeRead));
     };
     let mut stmt = conn.prepare_cached(
         "SELECT n.genre_id, g.name, n.weights, n.bias
@@ -680,7 +722,7 @@ fn guesses_in(conn: &Connection, fingerprint: &[f32]) -> rusqlite::Result<Vec<Yo
     }
     // Best first; the lower node id settles a tie.
     passing.sort_by(|a, b| b.2.total_cmp(&a.2).then(a.0.cmp(&b.0)));
-    Ok(passing
+    let genres: Vec<YourGenre> = passing
         .into_iter()
         .take(MOST_GENRES)
         .map(|(node, name, p)| YourGenre {
@@ -688,22 +730,41 @@ fn guesses_in(conn: &Connection, fingerprint: &[f32]) -> rusqlite::Result<Vec<Yo
             name,
             percent: (p * 100.0).round().clamp(0.0, 100.0) as u8,
         })
-        .collect())
+        .collect();
+    let reason = if genres.is_empty() {
+        YourGenresReason::NothingStrongEnough
+    } else {
+        YourGenresReason::Found
+    };
+    Ok(YourGenres { genres, reason })
 }
 
 /// The genres of yours the model hears in track `recording`: at most
-/// [`MOST_GENRES`], each at least [`THRESHOLD`] sure, best first. Empty when
-/// the switch is off, when there is no model (or it is of another embedding
-/// model), or when the track has no current fingerprint. A database that
-/// can't be read gives none: this only suggests.
-pub(crate) fn your_genres(conn: &Connection, recording: i64) -> Vec<YourGenre> {
+/// [`MOST_GENRES`], each at least [`THRESHOLD`] sure, best first. When there
+/// are none, the reason says why: the switch is off, the track is not in the
+/// Library, there is no model (or it is of another embedding model), the track
+/// has no fingerprint yet, nothing is sure enough, or something stored can't be
+/// read. A database that can't be read is `CouldntBeRead`: this only suggests.
+pub(crate) fn your_genres(conn: &Connection, recording: i64) -> YourGenres {
     let fingerprint = match standing(conn, recording) {
-        Ok(Standing::Heard(heard)) => heard.fingerprint,
-        _ => None,
+        Ok(Standing::Heard(heard)) => match heard.fingerprint {
+            Some(fingerprint) => fingerprint,
+            None => return YourGenres::none(YourGenresReason::CouldntBeRead),
+        },
+        Ok(Standing::Not(state)) => {
+            return YourGenres::none(match state {
+                PanelState::Off => YourGenresReason::SwitchOff,
+                PanelState::NotInLibrary => YourGenresReason::NotInLibrary,
+                PanelState::CouldntBeRead => YourGenresReason::CouldntBeRead,
+                PanelState::NotListenedYet | PanelState::Ready => {
+                    YourGenresReason::NoFingerprintYet
+                }
+            })
+        }
+        Err(_) => return YourGenres::none(YourGenresReason::CouldntBeRead),
     };
-    fingerprint
-        .and_then(|f| guesses_in(conn, &f).ok())
-        .unwrap_or_default()
+    guesses_in(conn, &fingerprint)
+        .unwrap_or_else(|_| YourGenres::none(YourGenresReason::CouldntBeRead))
 }
 
 /// The genres of yours the audio model hears in a track, from the model it
@@ -713,6 +774,6 @@ pub(crate) fn your_genres(conn: &Connection, recording: i64) -> Vec<YourGenre> {
 pub async fn audio_model_your_genres(
     reads: State<'_, ReadPool>,
     recording_id: i64,
-) -> Result<Vec<YourGenre>, IpcError> {
+) -> Result<YourGenres, IpcError> {
     Ok(reads.read(move |c| Ok(your_genres(c, recording_id)))?)
 }

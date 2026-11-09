@@ -41,6 +41,36 @@ const ALIASES: &[(&str, &str)] = &[
     ("Dance", "Electronic"),
 ];
 
+/// The names the audio model's genre guesses go by, that are not a node's
+/// name: `(alias, node)`. Both the AudioSet name ("House music") and the name
+/// the panel shows and "Use" sends ("Electronic dance"). Migration 0060 adds
+/// the same pairs for a library that already has the nodes; a test keeps the
+/// two in step.
+pub(crate) const AUDIO_MODEL_ALIASES: &[(&str, &str)] = &[
+    ("Pop music", "Pop"),
+    ("Hip hop music", "Hip-Hop"),
+    ("Hip hop", "Hip-Hop"),
+    ("Rock music", "Rock"),
+    ("Punk rock", "Punk"),
+    ("Rhythm and blues", "R&B"),
+    ("Soul music", "Soul"),
+    ("Funk", "Funk & Disco"),
+    ("Disco", "Funk & Disco"),
+    ("Reggae", "Reggae & Dancehall"),
+    ("Electronic music", "Electronic"),
+    ("Electronica", "Electronic"),
+    ("Electronic dance music", "Electronic"),
+    ("Electronic dance", "Electronic"),
+    ("House music", "House"),
+    ("Drum and bass", "Drum & Bass"),
+    ("Ambient music", "Ambient"),
+    ("Trance music", "Trance"),
+    ("Music of Latin America", "Latin"),
+    ("Latin American", "Latin"),
+    ("Salsa music", "Salsa"),
+    ("Afrobeat", "Afrobeats"),
+];
+
 /// Every starter genre as `(parent name, name)`, branches first.
 pub fn nodes() -> impl Iterator<Item = (Option<&'static str>, &'static str)> {
     let branches = TREE.iter().map(|(branch, _)| (None, *branch));
@@ -52,5 +82,5 @@ pub fn nodes() -> impl Iterator<Item = (Option<&'static str>, &'static str)> {
 
 /// The starter aliases, as `(alias, node name)`.
 pub fn aliases() -> impl Iterator<Item = (&'static str, &'static str)> {
-    ALIASES.iter().copied()
+    ALIASES.iter().chain(AUDIO_MODEL_ALIASES).copied()
 }

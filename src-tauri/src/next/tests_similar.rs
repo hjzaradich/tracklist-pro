@@ -10,7 +10,7 @@ use super::score::{
 };
 use super::*;
 use crate::audio_model::ledger::{self, Outcome};
-use crate::audio_model::similar::{Neighbours, Resemblance};
+use crate::audio_model::similar::{likeness_of, percent_of, Neighbours, Resemblance};
 use crate::audio_model::subset::SUBSET_LEN;
 use crate::audio_model::EMBEDDING_LEN;
 use crate::crates::fit::Camelot;
@@ -167,6 +167,39 @@ fn the_reason_says_the_percent_and_a_negative_cosine_counts_for_nothing() {
     assert_eq!(similar(2), None);
     assert!(score(&r, 1) > score(&r, 2));
     assert_eq!(order(&r), [1, 2]);
+}
+
+#[test]
+fn whats_next_and_the_panel_show_the_same_percent_for_cosines_at_every_rounding_boundary() {
+    // The f32 cosines on and around every x.5 boundary: widening to f64 first
+    // used to round some of them the other way (a percent off by one).
+    let mut checked = 0;
+    let mut differed = 0;
+    for step in 0..100_i32 {
+        let boundary = (step as f32 + 0.5) / 100.0;
+        for ulps in -4_i32..=4 {
+            let cosine = f32::from_bits(boundary.to_bits().wrapping_add_signed(ulps));
+            let all = [in_key(1, "8A")];
+            let r = run(KEY_AND_SOUND, &cosines(&[(1, cosine)]), &all);
+            let shown = r.results[0]
+                .reasons
+                .iter()
+                .find(|x| x.code == ReasonCode::Similar)
+                .and_then(|x| x.percent);
+            let panel = percent_of(cosine);
+            // A cosine under half a percent has a reason that says 0%.
+            assert_eq!(shown.unwrap_or(0), panel, "cosine {cosine}");
+            // What the f64 rounding used to say.
+            let before = (f64::from(likeness_of(cosine)) * 100.0).round() as u8;
+            differed += usize::from(before != panel);
+            checked += 1;
+        }
+    }
+    assert!(
+        differed > 0,
+        "the scan reaches a cosine the two roundings split on"
+    );
+    assert_eq!(checked, 900);
 }
 
 #[test]

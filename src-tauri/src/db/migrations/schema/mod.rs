@@ -21,6 +21,7 @@ mod fingerprint_audio_hash;
 mod fingerprint_match;
 mod fingerprint_matched;
 mod fingerprint_rev;
+mod genre_audio_aliases;
 mod grouping;
 mod grouping_names;
 mod inbox;
@@ -335,6 +336,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0058_identify_lookup.sql", &["identify_lookup"]),
     // The fingerprint revision a look-up used, to tell a stale answer (2.2, 6A-S2b).
     ("0059_identify_lookup_fingerprint_rev.sql", &[]),
+    // Aliases from the audio model's genre names to the genre tree (3.8, 6B-F3).
+    ("0060_genre_audio_model_aliases.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

@@ -105,6 +105,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0057_catalogue_number"),
     migration!("0058_identify_lookup"),
     migration!("0059_identify_lookup_fingerprint_rev"),
+    migration!("0060_genre_audio_model_aliases"),
 ];
 
 /// The table that records which migrations a database has had.
