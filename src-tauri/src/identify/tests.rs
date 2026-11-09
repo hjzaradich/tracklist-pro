@@ -486,6 +486,80 @@ fn a_catalogue_number_in_the_tags_is_suggested_for_id3_vorbis_and_mp4() {
 }
 
 #[test]
+fn each_catalogue_number_in_a_repeated_or_nul_separated_tag_is_its_own_suggestion() {
+    let cases = [
+        // ID3v2.4 separates the values of one frame with NUL.
+        (
+            "id3v2",
+            vec![("TXXX:CATALOGNUMBER", " ROOK1\0ROOK2 ")],
+            &["ROOK1", "ROOK2"] as &[&str],
+        ),
+        (
+            "id3v2",
+            vec![("TXXX:CATALOGNUMBER", "\0ROOK2\0\0 \0ROOK2")],
+            &["ROOK2"],
+        ),
+        (
+            "mp4_ilst",
+            vec![("----:com.apple.iTunes:CATALOGNUMBER", "ROOK1\0ROOK2")],
+            &["ROOK1", "ROOK2"],
+        ),
+        (
+            "vorbis_comments",
+            vec![("CATALOGNUMBER", "ROOK2"), ("CATALOGNUMBER", "ROOK1")],
+            &["ROOK1", "ROOK2"], // suggestions are listed by value
+        ),
+        (
+            "vorbis_comments",
+            vec![("CATALOGNUMBER", "ROOK1"), ("catalognumber", " ROOK1 ")],
+            &["ROOK1"],
+        ),
+        (
+            "vorbis_comments",
+            vec![("CATALOGNUMBER", " "), ("CATALOGNUMBER", "ROOK2")],
+            &["ROOK2"],
+        ),
+    ];
+    for (block, items, expected) in cases {
+        let t = track("a.mp3");
+        t.raw_tags(t.file, frames_in(block, &items));
+        let from_tags = IdentifySource::Tags {
+            file: t.named(t.file, "a.mp3"),
+        };
+        assert_eq!(
+            t.field(IdentifyField::CatalogueNumber).1,
+            expected
+                .iter()
+                .map(|n| ((*n).to_owned(), vec![from_tags.clone()]))
+                .collect::<Vec<_>>(),
+            "{block} {items:?}"
+        );
+    }
+}
+
+#[test]
+fn a_catalogue_number_from_a_multi_value_tag_matches_the_file_names_number() {
+    let t = track("Kit - Velo [ROOK042].mp3");
+    t.raw_tags(
+        t.file,
+        frames(&[("TXXX:CATALOGNUMBER", "ROOK041\0ROOK042")]),
+    );
+    let file = t.named(t.file, "Kit - Velo [ROOK042].mp3");
+    let tags = IdentifySource::Tags { file: file.clone() };
+    assert_eq!(
+        t.field(IdentifyField::CatalogueNumber).1,
+        // The number both the tag and the name give is listed first.
+        vec![
+            (
+                "ROOK042".to_owned(),
+                vec![tags.clone(), IdentifySource::FileName { file }]
+            ),
+            ("ROOK041".to_owned(), vec![tags]),
+        ]
+    );
+}
+
+#[test]
 fn a_catalogue_number_the_tags_and_the_file_name_share_is_one_suggestion_with_two_sources() {
     let t = track("Kit - Velo [ROOK042].mp3");
     t.raw_tags(

@@ -99,12 +99,59 @@ fn a_test_build_never_reaches_the_real_store() {
     // `native()` is the in-memory store while tests run, so even a test that
     // starts the whole app can't read or write the user's real credentials.
     let a = Credentials::native();
+    // Decided before anything is written: a real store fails here, untouched.
+    assert!(
+        a.is_in_memory(),
+        "not the in-memory mock store: nothing was written"
+    );
     assert!(a.is_available());
     a.set(DISCOGS, TOKEN).unwrap();
     // A second call makes a store of its own: nothing is shared with a
     // lasting store.
     let b = Credentials::native();
     assert_eq!(b.has(DISCOGS), Ok(false));
+}
+
+#[test]
+fn the_in_memory_store_says_it_is_one_without_holding_an_entry_and_no_store_does_not() {
+    let store = Credentials::in_memory();
+    assert!(store.is_in_memory());
+    assert_eq!(store.has(DISCOGS), Ok(false), "asking wrote nothing");
+    assert!(!Credentials::unavailable().is_in_memory());
+}
+
+/// A store that is not the mock, and holds nothing: it must never be taken
+/// for the in-memory store.
+struct NotTheMock;
+
+impl keyring_core::api::CredentialStoreApi for NotTheMock {
+    fn vendor(&self) -> String {
+        "A store that is not the mock".to_owned()
+    }
+
+    fn id(&self) -> String {
+        "not-the-mock".to_owned()
+    }
+
+    fn build(
+        &self,
+        _service: &str,
+        _user: &str,
+        _modifiers: Option<&std::collections::HashMap<&str, &str>>,
+    ) -> Result<keyring_core::Entry, Error> {
+        Err(Error::NoDefaultStore)
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+#[test]
+fn a_store_that_is_not_the_mock_does_not_say_it_is_the_in_memory_store() {
+    let other = Credentials::with_store(Arc::new(NotTheMock));
+    assert!(other.is_available());
+    assert!(!other.is_in_memory());
 }
 
 #[test]

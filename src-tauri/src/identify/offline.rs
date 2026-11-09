@@ -134,7 +134,7 @@ fn from_tags(file: &StoredFile, source: IdentifySource, out: &mut Vec<Candidate>
             push(out, field, tag.value, &source);
         }
     }
-    if let Some(number) = catalogue_number_in(raw) {
+    for number in catalogue_numbers_in(raw) {
         push(out, IdentifyField::CatalogueNumber, number, &source);
     }
 }
@@ -147,24 +147,43 @@ const CATALOGUE_KEYS: [(&str, &str); 3] = [
     ("vorbis_comments", "CATALOGNUMBER"),
 ];
 
-/// The catalogue number a file's stored `raw_tags` hold, if any: the first
-/// non-empty value in the ID3, MP4 or Vorbis key above. A value the scan cut
-/// short, or tags that are not in the shape the scan writes, give nothing.
-fn catalogue_number_in(raw_tags: &str) -> Option<String> {
-    let blocks: serde_json::Value = serde_json::from_str(raw_tags).ok()?;
-    CATALOGUE_KEYS.iter().find_map(|(block, key)| {
-        blocks.get(block)?.as_array()?.iter().find_map(|item| {
-            if !item.get("key")?.as_str()?.eq_ignore_ascii_case(key) {
-                return None;
+/// The catalogue numbers a file's stored `raw_tags` hold: each value of
+/// the first block that has the key, in order and without repeats. A value
+/// that holds several (ID3 and MP4 separate them with NUL) and a repeated
+/// Vorbis item give one number each, so each can match the file name's or
+/// Discogs's. Blank pieces are dropped; a value the scan cut short, or tags
+/// that are not in the shape the scan writes, give nothing.
+fn catalogue_numbers_in(raw_tags: &str) -> Vec<String> {
+    let Ok(blocks) = serde_json::from_str::<serde_json::Value>(raw_tags) else {
+        return Vec::new();
+    };
+    for (block, key) in CATALOGUE_KEYS {
+        let Some(items) = blocks.get(block).and_then(|b| b.as_array()) else {
+            continue;
+        };
+        let mut numbers: Vec<String> = Vec::new();
+        for item in items {
+            let named = item
+                .get("key")
+                .and_then(|k| k.as_str())
+                .is_some_and(|k| k.eq_ignore_ascii_case(key));
+            let value = item.get("value");
+            let cut = value.is_some_and(|v| v.get("full_len").is_some());
+            let text = value.and_then(|v| v.get("text")).and_then(|t| t.as_str());
+            let (true, false, Some(text)) = (named, cut, text) else {
+                continue;
+            };
+            for piece in text.split('\0').map(str::trim).filter(|p| !p.is_empty()) {
+                if !numbers.iter().any(|n| n == piece) {
+                    numbers.push(piece.to_owned());
+                }
             }
-            let value = item.get("value")?;
-            if value.get("full_len").is_some() {
-                return None;
-            }
-            let text = value.get("text")?.as_str()?.trim();
-            (!text.is_empty()).then(|| text.to_owned())
-        })
-    })
+        }
+        if !numbers.is_empty() {
+            return numbers;
+        }
+    }
+    Vec::new()
 }
 
 /// A file's name.

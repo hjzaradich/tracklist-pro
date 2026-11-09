@@ -507,7 +507,7 @@ fn an_operation_on_another_field_of_the_store_marks_nothing_due() {
     let library = t.library;
     t.lib
         .writer
-        .call(move |c| Ok(app_values::set(c, &Mount, library, "Comments", "warm up")))
+        .call(move |c| Ok(app_values::set(c, &Mount, library, "Year", "2003")))
         .unwrap()
         .unwrap();
     assert!(!t.due());

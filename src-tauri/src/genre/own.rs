@@ -164,7 +164,7 @@ fn listed_fields() -> String {
 }
 
 /// Marks due for the index every Library track whose own value of a listed
-/// field (`OWN_LISTED_FIELDS`: Name, Artist, Album, Remixer, Label, Genre)
+/// field (`OWN_LISTED_FIELDS`: Name, Artist, Album, Remixer, Label, Genre, Comments)
 /// the operation `operation` changed: in the operation's own transaction as it
 /// is recorded, and again in the Undo's. A row the operation (or its Undo)
 /// took away is found by what the log recorded of it; one still there by

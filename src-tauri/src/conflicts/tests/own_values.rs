@@ -718,7 +718,7 @@ fn taking_rekordboxs_genre_in_marks_the_track_due_for_the_index_and_another_fiel
 /// The fields whose own value changes what a track shows (`Genre` has its
 /// own tests above): taking one in, or settling one, must mark the track due
 /// for the search index.
-const LISTED_BESIDE_GENRE: [&str; 5] = ["Name", "Artist", "Album", "Remixer", "Label"];
+const LISTED_BESIDE_GENRE: [&str; 6] = ["Name", "Artist", "Album", "Remixer", "Label", "Comments"];
 
 impl Lib {
     /// Forgets what is due now, so a later check sees only what came after.
