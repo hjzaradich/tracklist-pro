@@ -712,3 +712,139 @@ fn taking_rekordboxs_genre_in_marks_the_track_due_for_the_index_and_another_fiel
         "nothing was there to take in the second time"
     );
 }
+
+// ---- What a settled field marks due, field by field (6B F1e) ---------------------
+
+/// The fields whose own value changes what a track shows (`Genre` has its
+/// own tests above): taking one in, or settling one, must mark the track due
+/// for the search index.
+const LISTED_BESIDE_GENRE: [&str; 5] = ["Name", "Artist", "Album", "Remixer", "Label"];
+
+impl Lib {
+    /// Forgets what is due now, so a later check sees only what came after.
+    fn clear_due(&self) {
+        self.writer
+            .call(|c| c.execute("DELETE FROM search_due", []).map(|_| ()))
+            .unwrap();
+    }
+
+    /// Whether the track is due for the index.
+    fn is_due(&self, id: LibraryTrackId) -> bool {
+        self.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT EXISTS (SELECT 1 FROM search_due
+                                    WHERE recording_id = (SELECT recording_id FROM library_track
+                                                          WHERE id = ?1))",
+                    [id.0],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    }
+
+    /// Edited here, sent, then changed in rekordbox: the next merge takes
+    /// rekordbox's value in.
+    fn changed_only_in_rekordbox(&self, field: &str) -> LibraryTrackId {
+        let id = self.known(&[(field, "Old")]);
+        self.set(id, field, "Mine").unwrap();
+        self.sent(id, &[(field, "Mine")]);
+        self.rekordbox_now(id, &[(field, "Theirs")]);
+        id
+    }
+
+    /// Edited on both sides since the send: one open conflict.
+    fn edited_on_both_sides_in(&self, field: &str) -> LibraryTrackId {
+        let id = self.known(&[(field, "Old")]);
+        self.sent(id, &[(field, "Old")]);
+        self.set(id, field, "Mine").unwrap();
+        self.rekordbox_now(id, &[(field, "Theirs")]);
+        self.detect_stored(&[id]);
+        id
+    }
+}
+
+#[test]
+fn taking_rekordboxs_value_in_marks_the_track_due_on_each_listed_field_and_a_control_does_not() {
+    for field in LISTED_BESIDE_GENRE {
+        let lib = Lib::new();
+        let id = lib.known(&[(field, "Old"), ("Rating", "51")]);
+        lib.set(id, field, "Mine").unwrap();
+        lib.set(id, "Rating", "255").unwrap();
+        lib.clear_due();
+        let take = |name: &str| {
+            let name = name.to_owned();
+            lib.writer
+                .call(move |c| app_values::take_in(c, id, &name))
+                .unwrap();
+        };
+        take("Rating");
+        assert!(
+            !lib.is_due(id),
+            "{field}: the control changed nothing shown"
+        );
+        take(field);
+        assert!(
+            lib.is_due(id),
+            "{field}: the track shows rekordbox's value now"
+        );
+        lib.clear_due();
+        take(field);
+        assert!(
+            !lib.is_due(id),
+            "{field}: nothing was there the second time"
+        );
+    }
+}
+
+#[test]
+fn the_merge_before_a_send_marks_the_track_due_when_it_takes_in_each_listed_field() {
+    for field in LISTED_BESIDE_GENRE {
+        let lib = Lib::new();
+        let id = lib.changed_only_in_rekordbox(field);
+        lib.clear_due();
+        assert!(!lib.is_due(id));
+
+        let merged = lib
+            .writer
+            .call(move |c| merge_before_send(c, &Mount, &[id]))
+            .unwrap();
+
+        assert_eq!(merged.taken_in, [(id, field.to_owned())], "{field}");
+        assert_eq!(lib.app_rows(), [], "{field}: the app's own value is gone");
+        assert!(
+            lib.is_due(id),
+            "{field}: the merge changed what the track shows"
+        );
+    }
+}
+
+#[test]
+fn a_resolved_conflict_marks_the_track_due_on_each_listed_field_when_the_apps_value_changes() {
+    for field in LISTED_BESIDE_GENRE {
+        // Keeping rekordbox's value clears the app's own.
+        let lib = Lib::new();
+        let id = lib.edited_on_both_sides_in(field);
+        let open = lib.only_open();
+        lib.clear_due();
+        lib.resolve(open.id, Choice::KeepRekordbox).unwrap();
+        assert!(lib.is_due(id), "{field}: keep rekordbox's");
+
+        // A value given by hand replaces the app's own.
+        let lib = Lib::new();
+        let id = lib.edited_on_both_sides_in(field);
+        let open = lib.only_open();
+        lib.clear_due();
+        lib.resolve(open.id, Choice::Edit("By hand".into()))
+            .unwrap();
+        assert!(lib.is_due(id), "{field}: a value by hand");
+
+        // Keeping the app's own changes nothing it shows (the control).
+        let lib = Lib::new();
+        let id = lib.edited_on_both_sides_in(field);
+        let open = lib.only_open();
+        lib.clear_due();
+        lib.resolve(open.id, Choice::KeepApp).unwrap();
+        assert!(!lib.is_due(id), "{field}: keep the app's");
+    }
+}
