@@ -487,12 +487,12 @@ fn a_catalogue_number_in_the_tags_is_suggested_for_id3_vorbis_and_mp4() {
 
 #[test]
 fn each_catalogue_number_in_a_repeated_or_nul_separated_tag_is_its_own_suggestion() {
-    let cases: [(&str, Vec<(&str, &str)>, &[&str]); 6] = [
+    let cases = [
         // ID3v2.4 separates the values of one frame with NUL.
         (
             "id3v2",
             vec![("TXXX:CATALOGNUMBER", " ROOK1\0ROOK2 ")],
-            &["ROOK1", "ROOK2"],
+            &["ROOK1", "ROOK2"] as &[&str],
         ),
         (
             "id3v2",
@@ -507,7 +507,7 @@ fn each_catalogue_number_in_a_repeated_or_nul_separated_tag_is_its_own_suggestio
         (
             "vorbis_comments",
             vec![("CATALOGNUMBER", "ROOK2"), ("CATALOGNUMBER", "ROOK1")],
-            &["ROOK2", "ROOK1"],
+            &["ROOK1", "ROOK2"], // suggestions are listed by value
         ),
         (
             "vorbis_comments",
@@ -539,18 +539,24 @@ fn each_catalogue_number_in_a_repeated_or_nul_separated_tag_is_its_own_suggestio
 
 #[test]
 fn a_catalogue_number_from_a_multi_value_tag_matches_the_file_names_number() {
-    let t = track("Kit - Velo [ROOK2].mp3");
-    t.raw_tags(t.file, frames(&[("TXXX:CATALOGNUMBER", "ROOK1\0ROOK2")]));
-    let file = t.named(t.file, "Kit - Velo [ROOK2].mp3");
-    let field = t.field(IdentifyField::CatalogueNumber).1;
-    assert_eq!(field.len(), 2);
-    assert!(field.contains(&(
-        "ROOK2".to_owned(),
+    let t = track("Kit - Velo [ROOK042].mp3");
+    t.raw_tags(
+        t.file,
+        frames(&[("TXXX:CATALOGNUMBER", "ROOK041\0ROOK042")]),
+    );
+    let file = t.named(t.file, "Kit - Velo [ROOK042].mp3");
+    let tags = IdentifySource::Tags { file: file.clone() };
+    assert_eq!(
+        t.field(IdentifyField::CatalogueNumber).1,
+        // The number both the tag and the name give is listed first.
         vec![
-            IdentifySource::Tags { file: file.clone() },
-            IdentifySource::FileName { file }
+            (
+                "ROOK042".to_owned(),
+                vec![tags.clone(), IdentifySource::FileName { file }]
+            ),
+            ("ROOK041".to_owned(), vec![tags]),
         ]
-    )));
+    );
 }
 
 #[test]
