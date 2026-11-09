@@ -106,17 +106,25 @@ pub fn artist_matches(want: &Names, hit_artist: &str) -> bool {
 const JOINERS: [&str; 6] = ["feat", "ft", "featuring", "x", "and", "vs"];
 
 /// The names in a credit, folded: split on `&`, `,`, `feat.`, `ft.`,
-/// `featuring`, `x`, `and` and `vs`. A joiner at the start or end of the
-/// credit, or beside another, is part of a name ("Malcolm X").
+/// `featuring`, `x`, `and` and `vs`, and on `/`, `;` and `+` when whitespace
+/// is on both sides ("A / B" is two names, "AC/DC" is one). A joiner at the
+/// start or end of the credit, or beside another, is part of a name
+/// ("Malcolm X"). For matching only: the tags keep their own rule
+/// (`versions::split_names`).
 pub fn credit_names(credit: &str) -> Vec<String> {
     let mut spaced = String::new();
     let mut depth = 0u32;
-    for c in credit.chars() {
+    let chars: Vec<char> = credit.chars().collect();
+    for (at, &c) in chars.iter().enumerate() {
+        let spaced_out = at > 0
+            && chars[at - 1].is_whitespace()
+            && chars.get(at + 1).is_some_and(|n| n.is_whitespace());
         match c {
             '(' | '[' | '{' => depth += 1,
             ')' | ']' | '}' => depth = depth.saturating_sub(1),
             _ if depth > 0 => {}
-            '&' | ',' | ';' | '/' | '+' => spaced.push_str(" | "),
+            '&' | ',' => spaced.push_str(" | "),
+            ';' | '/' | '+' if spaced_out => spaced.push_str(" | "),
             c if c.is_alphanumeric() => spaced.extend(c.to_lowercase()),
             _ => spaced.push(' '),
         }

@@ -951,6 +951,34 @@ fn credits_split_into_names_and_a_longer_name_is_not_the_shorter_one() {
     assert!(!artists_match("", ""));
 }
 
+#[test]
+fn a_slash_semicolon_or_plus_splits_a_credit_only_with_whitespace_on_both_sides() {
+    use super::names::credit_names;
+    assert_eq!(credit_names("AC/DC"), ["ac dc"]);
+    assert_eq!(credit_names("A / B"), ["a", "b"]);
+    assert_eq!(credit_names("A ; B + C"), ["a", "b", "c"]);
+    assert_eq!(credit_names("A; B"), ["a b"]);
+    assert_eq!(credit_names("A /B"), ["a b"]);
+    assert_eq!(credit_names("Mr+Ms"), ["mr ms"]);
+    // Commas and ampersands still split without spaces around them.
+    assert_eq!(credit_names("A&B,C"), ["a", "b", "c"]);
+    // A slash at an end has no name on its other side: it is not a split.
+    assert_eq!(credit_names("/ A /"), ["a"]);
+}
+
+#[test]
+fn ac_dc_never_matches_a_lone_dc_and_a_spaced_slash_still_matches_one_of_its_names() {
+    use super::names::artists_match;
+    assert!(!artists_match("AC/DC", "DC"));
+    assert!(!artists_match("DC", "AC/DC"));
+    assert!(!artists_match("AC/DC", "AC"));
+    assert!(artists_match("AC/DC", "AC/DC"));
+    assert!(artists_match("A / B", "A"));
+    assert!(artists_match("A / B", "B"));
+    assert!(artists_match("A ; B", "B"));
+    assert!(artists_match("A + B", "A"));
+}
+
 fn mixes(answer: &Answer) -> Vec<String> {
     answer
         .candidates
