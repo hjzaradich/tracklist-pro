@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import { renderApp } from "../app/testApp";
 import type { Crate } from "../bindings";
-import { DEFAULT_THEME, syncThemeToDocument, useThemeStore } from "../theme/themeStore";
+import { DEFAULT_THEME, THEME_STORAGE_KEY, syncThemeToDocument, useThemeStore } from "../theme/themeStore";
 import { DetailsPanel } from "./DetailsPanel";
 import { PlayerBar } from "./PlayerBar";
 import { Sidebar } from "./Sidebar";
@@ -313,19 +313,39 @@ describe("themes", () => {
     renderApp("/library");
     expect(await screen.findByRole("heading", { level: 1, name: tx("shell:stages.library") })).toBeInTheDocument();
     expect(document.documentElement.dataset.theme).toBe(theme);
-    expect(screen.getByRole("radio", { name: theme === "dark" ? tx("theme:dark") : tx("theme:light") })).toBeChecked();
     expect(screen.getByRole("navigation", { name: tx("shell:stages.label") })).toBeInTheDocument();
     expect(screen.getByRole("main")).toBeInTheDocument();
   });
 
-  it("switches theme from the top bar without leaving the current stage", async () => {
-    const user = userEvent.setup();
+  it("the top bar has no theme control", async () => {
     renderApp("/review");
     await screen.findByRole("heading", { level: 1, name: tx("shell:stages.review") });
+    const banner = within(screen.getByRole("banner"));
+    expect(banner.queryByRole("radiogroup")).toBeNull();
+    expect(banner.queryByRole("radio")).toBeNull();
+  });
 
-    await user.click(within(screen.getByRole("banner")).getByRole("radio", { name: tx("theme:light") }));
+  it("Settings has the theme control, and switching there changes the theme and keeps the screen", async () => {
+    const user = userEvent.setup();
+    renderApp("/settings");
+    await screen.findByRole("heading", { level: 1, name: tx("settings:title") });
+    const panel = within(screen.getByRole("region", { name: tx("settings:appearance.title") }));
+    expect(panel.getByRole("radio", { name: tx("theme:dark") })).toBeChecked();
+
+    await user.click(panel.getByRole("radio", { name: tx("theme:light") }));
     expect(document.documentElement.dataset.theme).toBe("light");
-    expect(screen.getByRole("heading", { level: 1, name: tx("shell:stages.review") })).toBeInTheDocument();
-    expect(currentStages()).toEqual([tx("shell:stages.review")]);
+    expect(panel.getByRole("radio", { name: tx("theme:light") })).toBeChecked();
+    expect(screen.getByRole("heading", { level: 1, name: tx("settings:title") })).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) ?? "{}").state?.theme).toBe("light");
+  });
+
+  it("Settings shows the saved theme choice on the next start", async () => {
+    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({ state: { theme: "light" }, version: 1 }));
+    await useThemeStore.persist.rehydrate();
+    renderApp("/settings");
+    await screen.findByRole("heading", { level: 1, name: tx("settings:title") });
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(screen.getByRole("radio", { name: tx("theme:light") })).toBeChecked();
+    localStorage.removeItem(THEME_STORAGE_KEY);
   });
 });

@@ -86,6 +86,11 @@ describe("the Settings screen", () => {
     const panel = screen.getByRole("region", { name: tx("settings:rekordbox.title") });
     // Energy stars, and the optional database reader (off: its switch alone).
     expect(within(panel).getAllByRole("checkbox")).toHaveLength(2);
+    // The theme has its own panel, Appearance, after rekordbox's.
+    const appearance = screen.getByRole("region", { name: tx("settings:appearance.title") });
+    expect(within(appearance).getByRole("radiogroup", { name: tx("theme:label") })).toBeInTheDocument();
+    expect(within(appearance).getAllByRole("radio")).toHaveLength(2);
+    expect(panel.compareDocumentPosition(appearance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // No Save and no button at all: a change applies at once.
     expect(screen.queryAllByRole("button")).toEqual([]);
   });

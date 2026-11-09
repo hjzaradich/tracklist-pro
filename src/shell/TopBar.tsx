@@ -1,14 +1,13 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { Activity } from "../activity/Activity";
-import { ThemeSwitch } from "../theme/ThemeSwitch";
 import styles from "./TopBar.module.css";
 import { UndoButton } from "./UndoButton";
 import { ZONES } from "./zones";
 
 /**
  * App name, the search / command palette slot (1.11, Ctrl+K), Undo (1bA-12),
- * the Activity status for background jobs (0E-3) and the theme switch. The
+ * the Activity status for background jobs (0E-3), not the theme (that lives in Settings). The
  * search slot is drawn only with `search` (see `zones.ts`): until the
  * search exists it would be a box that does nothing. Its place in the bar
  * stays, so the rest doesn't move.
@@ -44,7 +43,6 @@ export function TopBar({
         <UndoButton />
         <Activity />
         <SettingsLink />
-        <ThemeSwitch />
       </div>
     </header>
   );
