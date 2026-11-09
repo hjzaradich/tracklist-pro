@@ -32,7 +32,7 @@ specta-typescript = "=0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 # `backup`: the online-backup API for the portability bundle (ROADMAP 4.1),
 # used only inside the write guard.
-rusqlite = { version = "0.40.2", features = ["bundled", "hooks", "backup"] }
+rusqlite = { version = "0.41", features = ["bundled", "hooks", "backup"] }
 sha2 = "0.10.9"
 lofty = "0.25.4"
 unicode-normalization = "0.1"

@@ -299,8 +299,16 @@ pub fn run(conn: &mut Connection, migrations: &[Migration]) -> Result<usize, DbE
 /// same moment) applied it first.
 fn apply(conn: &mut Connection, m: &Migration) -> Result<bool, DbError> {
     let name = || m.name.to_string();
+    // Installing the refusal needs the connection to itself (rusqlite 0.41),
+    // so it goes in before the transaction begins and only takes effect
+    // while armed. It comes off when this function ends, after the
+    // transaction is committed or rolled back.
+    let mut guard = RefuseTransactionStatements::install(conn)?;
+    let switch = guard.switch();
     // Dropping `tx` without committing rolls it back.
-    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let tx = guard
+        .conn()
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
 
     // Look again now that this connection holds the write lock: someone
     // may have applied it since `run` read the table.
@@ -320,12 +328,12 @@ fn apply(conn: &mut Connection, m: &Migration) -> Result<bool, DbError> {
 
     // Refuse transaction statements as SQLite prepares them, before any
     // runs: a COMMIT in the file would otherwise commit half a migration.
-    // The guard is dropped at the end of this block, before anything else
-    // runs: the rollback on drop and the commit below are transaction
+    // The refusal is disarmed at the end of this block, before anything
+    // else runs: the rollback on drop and the commit below are transaction
     // statements too.
     let (result, refused) = {
-        let guard = RefuseTransactionStatements::install(&tx)?;
-        (tx.execute_batch(m.sql), guard.refused())
+        let armed = switch.arm();
+        (tx.execute_batch(m.sql), armed.refused())
     };
     if refused || tx.is_autocommit() {
         return Err(MigrationError::TransactionStatement { name: name() }.into());
@@ -350,43 +358,94 @@ fn apply(conn: &mut Connection, m: &Migration) -> Result<bool, DbError> {
     Ok(true)
 }
 
-/// While alive, refuses every transaction statement (`BEGIN`, `COMMIT`,
-/// `END`, `ROLLBACK`, `SAVEPOINT`, `RELEASE`) on its connection and
-/// remembers that it did. Dropping it removes the refusal, however the
-/// scope ends: normally, by an early return or `?`, or by a panic. Left in
-/// place, it would stop the writer from ever beginning or committing a
-/// transaction again.
+/// Installed on a connection, refuses every transaction statement
+/// (`BEGIN`, `COMMIT`, `END`, `ROLLBACK`, `SAVEPOINT`, `RELEASE`) while
+/// armed through its [`RefusalSwitch`], and remembers that it did. Dropping
+/// the guard removes the refusal, however the scope ends: normally, by an
+/// early return or `?`, or by a panic. Left in place, it would stop the
+/// writer from ever beginning or committing a transaction again.
 ///
 /// A connection has one authorizer, and the write guard's (no `ATTACH` of
 /// a file) must hold throughout: this one applies the guard's rule first,
 /// and dropping it puts the guard's rule back rather than clearing it.
+///
+/// rusqlite 0.41 needs the connection exclusively to set an authorizer, and
+/// a transaction holds the connection too, so the guard is installed first,
+/// stays unarmed while the transaction begins, and lends the connection
+/// out through [`Self::conn`].
 struct RefuseTransactionStatements<'c> {
-    conn: &'c Connection,
+    conn: &'c mut Connection,
+    switch: RefusalSwitch,
+}
+
+/// Arms and disarms a [`RefuseTransactionStatements`] and reports whether
+/// it refused anything. Shares state with the guard, so it can be used
+/// while the connection is borrowed elsewhere.
+#[derive(Clone)]
+struct RefusalSwitch {
+    armed: Arc<AtomicBool>,
     refused: Arc<AtomicBool>,
 }
 
-impl<'c> RefuseTransactionStatements<'c> {
-    fn install(conn: &'c Connection) -> rusqlite::Result<Self> {
-        let refused = Arc::new(AtomicBool::new(false));
-        let flag = refused.clone();
-        conn.authorizer(Some(move |ctx: AuthContext<'_>| {
-            if write_guard::sqlite_rule(&ctx.action) == Authorization::Deny {
-                return Authorization::Deny;
-            }
-            match ctx.action {
-                AuthAction::Transaction { .. } | AuthAction::Savepoint { .. } => {
-                    flag.store(true, Ordering::SeqCst);
-                    Authorization::Deny
-                }
-                _ => Authorization::Allow,
-            }
-        }))?;
-        Ok(RefuseTransactionStatements { conn, refused })
+/// Refusal is on while this lives.
+struct Armed<'s>(&'s RefusalSwitch);
+
+impl RefusalSwitch {
+    fn arm(&self) -> Armed<'_> {
+        self.armed.store(true, Ordering::SeqCst);
+        Armed(self)
     }
 
     /// Whether a transaction statement was refused so far.
     fn refused(&self) -> bool {
         self.refused.load(Ordering::SeqCst)
+    }
+}
+
+impl Armed<'_> {
+    fn refused(&self) -> bool {
+        self.0.refused()
+    }
+}
+
+impl Drop for Armed<'_> {
+    fn drop(&mut self) {
+        self.0.armed.store(false, Ordering::SeqCst);
+    }
+}
+
+impl<'c> RefuseTransactionStatements<'c> {
+    fn install(conn: &'c mut Connection) -> rusqlite::Result<Self> {
+        let switch = RefusalSwitch {
+            armed: Arc::new(AtomicBool::new(false)),
+            refused: Arc::new(AtomicBool::new(false)),
+        };
+        let seen = switch.clone();
+        conn.authorizer(Some(move |ctx: AuthContext<'_>| {
+            if write_guard::sqlite_rule(&ctx.action) == Authorization::Deny {
+                return Authorization::Deny;
+            }
+            match ctx.action {
+                AuthAction::Transaction { .. } | AuthAction::Savepoint { .. }
+                    if seen.armed.load(Ordering::SeqCst) =>
+                {
+                    seen.refused.store(true, Ordering::SeqCst);
+                    Authorization::Deny
+                }
+                _ => Authorization::Allow,
+            }
+        }))?;
+        Ok(RefuseTransactionStatements { conn, switch })
+    }
+
+    /// The connection, to run statements on while the guard is in place.
+    fn conn(&mut self) -> &mut Connection {
+        self.conn
+    }
+
+    /// The switch that arms this guard.
+    fn switch(&self) -> RefusalSwitch {
+        self.switch.clone()
     }
 }
 
@@ -595,11 +654,16 @@ mod tests {
 
     #[test]
     fn while_the_guard_is_in_place_transaction_statements_are_refused_and_noticed() {
-        let (_dir, conn) = open_temp();
-        let guard = RefuseTransactionStatements::install(&conn).unwrap();
-        assert!(!guard.refused());
-        conn.execute_batch("CREATE TABLE a (x INTEGER)").unwrap();
-        assert!(!guard.refused(), "an ordinary statement counted as refused");
+        let (_dir, mut conn) = open_temp();
+        let mut guard = RefuseTransactionStatements::install(&mut conn).unwrap();
+        let switch = guard.switch();
+        let armed = switch.arm();
+        assert!(!armed.refused());
+        guard
+            .conn()
+            .execute_batch("CREATE TABLE a (x INTEGER)")
+            .unwrap();
+        assert!(!armed.refused(), "an ordinary statement counted as refused");
         for sql in [
             "BEGIN",
             "COMMIT",
@@ -608,30 +672,35 @@ mod tests {
             "RELEASE s",
             "END",
         ] {
-            assert!(conn.execute_batch(sql).is_err(), "{sql} ran");
+            assert!(guard.conn().execute_batch(sql).is_err(), "{sql} ran");
         }
-        assert!(guard.refused());
+        assert!(armed.refused());
+        drop(armed);
         drop(guard);
         assert!(can_run_transactions(&conn));
     }
 
     #[test]
     fn the_guard_is_removed_when_its_scope_ends_early_with_an_error() {
-        fn fails_halfway(conn: &Connection) -> rusqlite::Result<()> {
-            let _guard = RefuseTransactionStatements::install(conn)?;
-            conn.execute_batch("NOT SQL")?; // returns here
+        fn fails_halfway(conn: &mut Connection) -> rusqlite::Result<()> {
+            let mut guard = RefuseTransactionStatements::install(conn)?;
+            let switch = guard.switch();
+            let _armed = switch.arm();
+            guard.conn().execute_batch("NOT SQL")?; // returns here
             unreachable!("the statement above fails");
         }
-        let (_dir, conn) = open_temp();
-        assert!(fails_halfway(&conn).is_err());
+        let (_dir, mut conn) = open_temp();
+        assert!(fails_halfway(&mut conn).is_err());
         assert!(can_run_transactions(&conn), "the guard outlived its scope");
     }
 
     #[test]
     fn the_guard_is_removed_when_its_scope_ends_in_a_panic() {
-        let (_dir, conn) = open_temp();
+        let (_dir, mut conn) = open_temp();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _guard = RefuseTransactionStatements::install(&conn).unwrap();
+            let guard = RefuseTransactionStatements::install(&mut conn).unwrap();
+            let switch = guard.switch();
+            let _armed = switch.arm();
             panic!("blew up while the guard was in place");
         }));
         assert!(result.is_err());

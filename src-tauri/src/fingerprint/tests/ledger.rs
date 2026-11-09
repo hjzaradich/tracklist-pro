@@ -39,7 +39,7 @@ fn db(files: i64) -> (tempfile::TempDir, Connection) {
 
 /// How many steps SQLite's virtual machine takes to answer
 /// `ledger::due(conn, id)`.
-fn steps_to_ask_about(conn: &Connection, id: i64) -> usize {
+fn steps_to_ask_about(conn: &mut Connection, id: i64) -> usize {
     let steps = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&steps);
     conn.progress_handler(
@@ -58,11 +58,11 @@ fn steps_to_ask_about(conn: &Connection, id: i64) -> usize {
 
 #[test]
 fn asking_whether_one_file_is_due_starts_at_that_file_and_never_walks_the_table_from_the_start() {
-    let (_dir, conn) = db(2000);
+    let (_dir, mut conn) = db(2000);
     // Warm the statement cache so compiling it isn't counted.
-    steps_to_ask_about(&conn, 1);
-    let first = steps_to_ask_about(&conn, 1);
-    let last = steps_to_ask_about(&conn, 2000);
+    steps_to_ask_about(&mut conn, 1);
+    let first = steps_to_ask_about(&mut conn, 1);
+    let last = steps_to_ask_about(&mut conn, 2000);
     // The fingerprint job asks this of every file it fingerprints: at
     // 100,000 files, a walk from the first file to this one for each is
     // minutes on the writer.
