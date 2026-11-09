@@ -1,4 +1,5 @@
 mod automatic;
+mod streamed;
 
 use super::*;
 use crate::db::migrations;
