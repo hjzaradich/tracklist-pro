@@ -1005,9 +1005,9 @@ fn beside_names(path: &Path) -> impl Iterator<Item = std::ffi::OsString> {
 /// is allowed. An `ATTACH` whose file name isn't a plain string (e.g.
 /// `ATTACH lower('x')` or `ATTACH ?1`) reaches the check without a name and
 /// is refused.
-fn confine(conn: Connection) -> rusqlite::Result<Connection> {
+fn confine(mut conn: Connection) -> rusqlite::Result<Connection> {
     conn.pragma_update(None, "temp_store", "MEMORY")?;
-    install_sqlite_rule(&conn)?;
+    install_sqlite_rule(&mut conn)?;
     Ok(conn)
 }
 
@@ -1045,7 +1045,7 @@ const REDIRECTING_PRAGMAS: &[&str] =
     &["temp_store", "temp_store_directory", "data_store_directory"];
 
 /// Makes [`sqlite_rule`] the connection's authorizer.
-pub(crate) fn install_sqlite_rule(conn: &Connection) -> rusqlite::Result<()> {
+pub(crate) fn install_sqlite_rule(conn: &mut Connection) -> rusqlite::Result<()> {
     conn.authorizer(Some(|ctx: AuthContext<'_>| sqlite_rule(&ctx.action)))
 }
 

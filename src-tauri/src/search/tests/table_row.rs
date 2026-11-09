@@ -172,20 +172,29 @@ fn write_inputs(tx: &Transaction<'_>, i: &Inputs) -> Written {
     .unwrap()
 }
 
-/// How many rows of `track_row` `run` inserts, updates or deletes.
-fn rows_written(conn: &Connection, run: impl FnOnce()) -> usize {
+/// Counts the rows of `track_row` inserted, updated or deleted on `conn`
+/// from now on. Installed before a transaction begins (rusqlite 0.41 needs
+/// the connection to itself to set a hook); it also sees what happens in
+/// the transaction.
+fn watch_track_row_writes(conn: &mut Connection) -> Arc<AtomicUsize> {
     let count = Arc::new(AtomicUsize::new(0));
     let seen = Arc::clone(&count);
-    let _ = conn.update_hook(Some(
+    conn.update_hook(Some(
         move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| {
             if table == "track_row" {
                 seen.fetch_add(1, Ordering::SeqCst);
             }
         },
-    ));
+    ))
+    .unwrap();
+    count
+}
+
+/// How many rows of `track_row` `run` inserts, updates or deletes.
+fn rows_written(count: &AtomicUsize, run: impl FnOnce()) -> usize {
+    let before = count.load(Ordering::SeqCst);
     run();
-    let _ = conn.update_hook(None::<fn(rusqlite::hooks::Action, &str, &str, i64)>);
-    count.load(Ordering::SeqCst)
+    count.load(Ordering::SeqCst) - before
 }
 
 #[test]
@@ -204,6 +213,7 @@ fn every_column_of_the_row_has_a_change_that_is_written_and_an_equal_row_is_not(
                 "every column of track_row needs a change in CHANGES, and every change a column"
             );
 
+            let writes = watch_track_row_writes(conn);
             for (column, what, change) in CHANGES {
                 conn.execute("DELETE FROM track_row", [])?;
                 let tx = conn.transaction()?;
@@ -216,7 +226,7 @@ fn every_column_of_the_row_has_a_change_that_is_written_and_an_equal_row_is_not(
                 let before = stored(&tx, column);
 
                 // The same row again: nothing is written.
-                let wrote = rows_written(&tx, || {
+                let wrote = rows_written(&writes, || {
                     assert_eq!(
                         write_inputs(&tx, &base),
                         Written::Unchanged,
@@ -229,7 +239,7 @@ fn every_column_of_the_row_has_a_change_that_is_written_and_an_equal_row_is_not(
                 let mut changed = base.clone();
                 change(&mut changed);
                 let mut result = None;
-                let wrote = rows_written(&tx, || result = Some(write_inputs(&tx, &changed)));
+                let wrote = rows_written(&writes, || result = Some(write_inputs(&tx, &changed)));
                 assert_eq!(
                     result,
                     Some(Written::Changed {

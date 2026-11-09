@@ -188,7 +188,7 @@ fn an_open_conflict_and_a_better_file_move_the_stamp() {
 #[test]
 fn a_delete_with_no_where_clause_is_not_seen_by_the_hooks_so_no_code_makes_one() {
     // The fact the rule rests on.
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute_batch("CREATE TABLE t (id INTEGER PRIMARY KEY); INSERT INTO t VALUES (1), (2);")
         .unwrap();
     let seen = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
