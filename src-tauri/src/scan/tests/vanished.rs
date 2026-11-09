@@ -12,13 +12,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use super::support::{db, serial, TempVolume};
+use super::support::{db, link_dir, serial, TempVolume};
 use super::unreadable::Unlistable;
 use super::walk::{add_music, at, drive, many, put, rows, scan, scan_with, wait};
 use crate::db::Writer;
 use crate::jobs::{JobKind, JobQueue, JobStatus};
 use crate::paths::{RelPath, Volumes};
 use crate::scan::folders::{stored, stored_one, MusicFolderId};
+use crate::scan::relocate::{relocate, RelocateError};
 use crate::scan::walk::{finish, scan_job, Unread, Walker, BATCH_MAX};
 use crate::volume::{Volume, VolumeId, VolumeKind};
 
@@ -531,4 +532,68 @@ fn finishing_a_walk_skips_every_folder_whose_listing_broke_off() {
             ("d.mp3".into(), false),
         ])
     );
+}
+
+#[test]
+fn the_list_says_whether_the_folder_itself_is_there_not_only_whether_its_drive_is() {
+    let (_dir, volume, music) = drive();
+    put(&music, "a.mp3", b"a");
+    let (_db, writer, _reads) = db();
+    add_music(&writer, &volume, &music);
+    scan(&writer, &volume);
+    let folder = || writer.call(|c| stored(c)).unwrap().remove(0);
+
+    let there = folder().to_music_folder(&volume);
+    assert!((there.online, there.folder_found) == (true, true));
+
+    // The drive stays connected; the folder is renamed or deleted.
+    std::fs::remove_dir_all(&music).unwrap();
+    let gone = folder().to_music_folder(&volume);
+    assert!((gone.online, gone.folder_found) == (true, false));
+
+    // A drive that is away has no folder to find either, and is offline too.
+    volume.set_online(false);
+    let away = folder().to_music_folder(&volume);
+    assert!((away.online, away.folder_found) == (false, false));
+}
+
+/// A scanned folder whose place on the connected drive `stand_in` has
+/// taken over: the list reads it as not found, and relocating does not
+/// answer "not missing" (the two use the same test).
+fn a_stand_in_for_the_folder_reads_as_missing(stand_in: impl FnOnce(&TempVolume, &Path)) {
+    let (_dir, volume, music) = drive();
+    put(&music, "a.mp3", b"a");
+    let (_db, writer, _reads) = db();
+    let id = add_music(&writer, &volume, &music);
+    scan(&writer, &volume);
+    fs::remove_dir_all(&music).unwrap();
+    stand_in(&volume, &music);
+
+    let listed = writer.call(|c| stored(c)).unwrap().remove(0);
+    let listed = listed.to_music_folder(&volume);
+    assert!((listed.online, listed.folder_found) == (true, false));
+    let refused = relocate(
+        &writer,
+        &Arc::new(volume.clone()),
+        id,
+        &at(&volume.mount, "Elsewhere"),
+    );
+    assert_ne!(refused.err(), Some(RelocateError::NotMissing));
+}
+
+#[test]
+fn a_file_where_the_folder_was_reads_as_missing_and_can_be_relocated() {
+    a_stand_in_for_the_folder_reads_as_missing(|_, music| {
+        fs::write(music, b"not a folder").unwrap()
+    });
+}
+
+#[test]
+fn a_broken_link_where_the_folder_was_reads_as_missing_and_can_be_relocated() {
+    a_stand_in_for_the_folder_reads_as_missing(|volume, music| {
+        let target = volume.mount.join("Target");
+        fs::create_dir(&target).unwrap();
+        link_dir(music, &target);
+        fs::remove_dir(&target).unwrap();
+    });
 }

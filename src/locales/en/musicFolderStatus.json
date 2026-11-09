@@ -2,6 +2,7 @@
   "empty": "No music folders",
   "offline": "Drive not connected",
   "offlineNamed": "Drive not connected ({{label}})",
+  "folderNotFound": "Folder not found",
   "notScanned": "Not scanned yet",
   "unreadableFolders_one": "{{count}} folder couldn't be read",
   "unreadableFolders_other": "{{count}} folders couldn't be read",

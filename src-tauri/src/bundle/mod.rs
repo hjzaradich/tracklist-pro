@@ -495,7 +495,7 @@ fn keep_out(reads: &ReadPool, configs: &[Option<PathBuf>]) -> Result<KeepOut, Bu
     Ok(KeepOut {
         music_folders: folders
             .iter()
-            .map(|f| PathBuf::from(f.to_music_folder(&volumes).path))
+            .map(|f| PathBuf::from(f.shown_path(&volumes)))
             .collect(),
         // `Pioneer` holds rekordbox's data; refuse the whole of it.
         rekordbox_data: configs

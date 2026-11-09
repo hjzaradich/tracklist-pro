@@ -75,7 +75,7 @@ function FolderRow({
   return (
     <li
       className={styles.row}
-      data-online={folder.online}
+      data-online={folder.online && folder.folderFound}
       aria-describedby={notes.length > 0 ? notesId : undefined}
     >
       <span id={pathId} className={styles.path}>
@@ -89,18 +89,19 @@ function FolderRow({
         />
       )}
       {onScanAgain && (
-        // Greyed out while the drive is away: the row's note says so.
+        // Greyed out while the drive is away or the folder is gone: the row's note says so.
         <button
           type="button"
           aria-describedby={pathId}
-          disabled={!folder.online}
+          disabled={!folder.online || !folder.folderFound}
           onClick={() => onScanAgain(folder.id)}
         >
           {t("scanAgain")}
         </button>
       )}
-      {onFindIt && !folder.online && (
-        // Points the folder at where it is now (4.1).
+      {onFindIt && (!folder.online || !folder.folderFound) && (
+        // Points the folder at where it is now (4.1): its drive is away, or the drive is
+        // connected and the folder is not on it.
         <button type="button" aria-describedby={pathId} onClick={() => onFindIt(folder.id)}>
           {t("findIt")}
         </button>

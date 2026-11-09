@@ -9,6 +9,10 @@
     "where": "Music folder list, under a folder on a drive that isn't connected.",
     "approved": "Drive not connected"
   },
+  "folderNotFound": {
+    "purpose": "Note that a folder is not where it was on a drive that is connected (moved, renamed or deleted). \"Find it…\" is offered beside it.",
+    "where": "Music folder list, under a folder whose drive is connected but which is not on it."
+  },
   "offlineNamed": {
     "purpose": "Note that a folder's drive isn't connected, naming the drive.",
     "where": "Music folder list, under a folder on an unconnected drive that has a label ({{label}}).",

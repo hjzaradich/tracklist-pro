@@ -12,7 +12,7 @@
   color: var(--color-text);
 }
 
-/* The drive isn't connected: the folder stays listed, greyed out. */
+/* The drive isn't connected, or it is and the folder is not on it: the folder stays listed, greyed out. */
 .row[data-online="false"] {
   color: var(--color-text-disabled);
 }

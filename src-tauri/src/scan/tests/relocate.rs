@@ -135,6 +135,24 @@ fn file_ids(writer: &Writer) -> Vec<(i64, String)> {
         .unwrap()
 }
 
+/// Every file under `root` with its contents, to see that nothing changed.
+fn tree_of(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut found = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                found.push((path.clone(), fs::read(path).unwrap()));
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
 fn moved_to(s: &Setup) -> PathBuf {
     s.drives.new.mount.join("Moved/Music")
 }
@@ -162,6 +180,60 @@ fn a_folder_that_is_reachable_is_refused() {
     let refused = relocate(&s.writer, &s.drives, s.folder, &moved_to(&s)).unwrap_err();
     assert_eq!(refused, RelocateError::NotMissing);
     assert_eq!(place(&s.writer, s.folder).1, "Music");
+}
+
+#[test]
+fn a_folder_missing_from_a_connected_drive_can_be_relocated_and_no_music_file_is_touched() {
+    let s = setup();
+    // The drive is back, but the folder is gone from it (renamed or deleted).
+    s.drives.old.set_online(true);
+    fs::remove_dir_all(s.drives.old.mount.join("Music")).unwrap();
+    let before = file_ids(&s.writer);
+    let files_at_new = tree_of(&moved_to(&s));
+    let done = relocate(&s.writer, &s.drives, s.folder, &moved_to(&s)).unwrap();
+    assert_eq!((done.found, done.checked), (3, 3));
+    assert_eq!(
+        place(&s.writer, s.folder),
+        (
+            s.drives.new.id.as_str().to_owned(),
+            "Moved/Music".to_owned()
+        )
+    );
+    assert_eq!(file_ids(&s.writer), before);
+    assert_eq!(
+        tree_of(&moved_to(&s)),
+        files_at_new,
+        "no music file changed"
+    );
+}
+
+#[test]
+fn a_folder_missing_from_a_connected_drive_still_needs_four_of_five_files_at_the_new_place() {
+    let five = [
+        ("a.mp3", "1"),
+        ("b.mp3", "22"),
+        ("c.mp3", "333"),
+        ("d.mp3", "4444"),
+        ("e.mp3", "55555"),
+    ];
+    let s = setup_with(&five, 3);
+    s.drives.old.set_online(true);
+    fs::remove_dir_all(s.drives.old.mount.join("Music")).unwrap();
+    let refused = relocate(&s.writer, &s.drives, s.folder, &moved_to(&s)).unwrap_err();
+    assert_eq!(
+        refused,
+        RelocateError::TooFewFiles {
+            found: 3,
+            checked: 5
+        }
+    );
+    assert_eq!(place(&s.writer, s.folder).1, "Music");
+
+    let s = setup_with(&five, 4);
+    s.drives.old.set_online(true);
+    fs::remove_dir_all(s.drives.old.mount.join("Music")).unwrap();
+    let done = relocate(&s.writer, &s.drives, s.folder, &moved_to(&s)).unwrap();
+    assert_eq!((done.found, done.checked), (4, 5));
 }
 
 #[test]

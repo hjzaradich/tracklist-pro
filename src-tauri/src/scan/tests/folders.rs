@@ -295,6 +295,69 @@ mod on_disk {
     }
 
     #[test]
+    fn a_folder_the_disk_never_answers_for_does_not_hold_up_the_list_and_reads_as_found() {
+        let (_dir, volume) = drive(&["Hung", "Gone", "There"]);
+        let (_db, writer, _reads) = db();
+        for name in ["Hung", "Gone", "There"] {
+            add_at(&writer, &volume, name).unwrap();
+        }
+        fs::remove_dir_all(at(&volume, "Gone")).unwrap();
+        let stored = writer.call(|c| stored(c)).unwrap();
+
+        // The stat for `Hung` blocks until the test lets go of `release`.
+        let (release, hold) = std::sync::mpsc::channel::<()>();
+        let hold = std::sync::Mutex::new(hold);
+        let stat: folders::Stat = std::sync::Arc::new(move |p: &Path| {
+            if p.ends_with("Hung") {
+                let _ = hold.lock().unwrap().recv();
+            }
+            p.is_dir()
+        });
+        let listed = folders::list_found(
+            &stored,
+            &volume,
+            stat,
+            std::time::Duration::from_millis(300),
+        );
+        drop(release);
+
+        let found: Vec<(String, bool)> = listed
+            .iter()
+            .map(|f| {
+                (
+                    f.path
+                        .rsplit(std::path::MAIN_SEPARATOR)
+                        .next()
+                        .unwrap()
+                        .to_owned(),
+                    f.folder_found,
+                )
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("Hung".to_owned(), true),
+                ("Gone".to_owned(), false),
+                ("There".to_owned(), true)
+            ]
+        );
+        assert!(listed.iter().all(|f| f.online));
+    }
+
+    #[test]
+    fn a_folder_on_an_offline_drive_is_never_asked_about() {
+        let (_dir, volume) = drive(&["Music"]);
+        let (_db, writer, _reads) = db();
+        add_at(&writer, &volume, "Music").unwrap();
+        volume.set_online(false);
+        let stored = writer.call(|c| stored(c)).unwrap();
+        let stat: folders::Stat = std::sync::Arc::new(|_| panic!("asked about an offline folder"));
+        let listed = folders::list_found(&stored, &volume, stat, std::time::Duration::from_secs(5));
+        assert!((listed[0].online, listed[0].folder_found) == (false, false));
+    }
+
+    #[test]
     fn a_path_that_is_not_an_existing_folder_is_refused() {
         let (_dir, volume) = drive(&["Music"]);
         fs::write(at(&volume, "Music/a.mp3"), b"x").unwrap();

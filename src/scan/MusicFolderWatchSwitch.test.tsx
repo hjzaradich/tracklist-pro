@@ -13,6 +13,7 @@ function folder(watch: boolean): MusicFolder {
     watch,
     path: String.raw`E:\Music`,
     online: true,
+    folderFound: true,
     volumeLabel: "",
     addedAt: "2026-09-29T10:00:00.000Z",
     walkedAt: null,
