@@ -41,6 +41,14 @@
 //! `TLP_PERF_EVICT=<GiB>` pushes the file cache out of memory right before
 //! it ([`evict_file_cache`]), for a cold run without a reboot.
 //!
+//! Run 6B P1 tried more read threads on a cold read (8 logical CPUs,
+//! Defender on, `TLP_PERF_EVICT=12`, synthetic WAVs, one run each): 4
+//! threads read the 100,000 files in 175.5 s, 6 in 425.0 s, 8 in 342.3 s.
+//! The walk before them also ran slower in the later runs (24.6 s, then
+//! 49.5 s and 51.7 s), so the machine was busier, but no run with more
+//! threads came close to beating four. More threads don't help cold reads
+//! on this laptop; the read job keeps the shared budget's four.
+//!
 //! **`stage_2_parts_per_format`** (also ignored) times the sniff and the
 //! tag read on their own over a sample of each format, to place stage 2's
 //! time. **`a_thousand_files_go_through_the_chain`** is the smoke test that runs
